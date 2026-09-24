@@ -4,7 +4,7 @@ const KEY = 'festafacil.v1';
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
-const vazio = () => ({ clientes: [], eventos: [], lancamentos: [], categorias: CATS_PADRAO(), catalogo: [], pcats: [], produtos: [], compras: [], movs: [], config: { nome: 'Festa Fácil', whats: '' } });
+const vazio = () => ({ clientes: [], eventos: [], lancamentos: [], categorias: CATS_PADRAO(), catalogo: [], pcats: [], produtos: [], compras: [], movs: [], kits: [], artes: [], pmovs: [], vendas: [], config: { nome: 'Festa Fácil', whats: '' } });
 let db;
 try { db = Object.assign(vazio(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { db = vazio(); }
 // Traz dados de versões anteriores (brinquedos/oficinas separados) para o catálogo único
@@ -33,7 +33,7 @@ const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julh
 const STATUS = { orcamento: 'Orçamento', confirmado: 'Confirmado', realizado: 'Realizado', cancelado: 'Cancelado' };
 const FORMAS = { pix: 'Pix', cartao: 'Cartão', dinheiro: 'Dinheiro' };
 const FORMAS_ALL = { ...FORMAS, credito: 'Cartão de crédito', debito: 'Cartão de débito', boleto: 'Boleto', outro: 'Outro' };
-const CATS_R = ['Sinal de evento', 'Pagamento de evento', 'Outros'];
+const CATS_R = ['Sinal de evento', 'Pagamento de evento', 'Venda de produtos', 'Outros'];
 const CATS_D = ['Material', 'Transporte', 'Funcionários', 'Manutenção', 'Marketing', 'Outros'];
 let toastT;
 function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); }
@@ -103,14 +103,14 @@ function wa(tel, txt) {
 }
 
 /* ===== Roteador ===== */
-const rotas = { dashboard: () => viewDashboard(), agenda: () => viewAgenda(), clientes: () => viewClientes(), catalogo: () => viewCatalogo(), financeiro: () => viewFinanceiro(), estoque: () => viewEstoque(), relatorios: () => viewRelatorios(), config: () => viewConfig() };
-const titulos = { dashboard: 'Início', agenda: 'Agenda', clientes: 'Clientes', catalogo: 'Catálogo', financeiro: 'Financeiro', estoque: 'Estoque', relatorios: 'Relatórios', config: 'Configurações' };
+const rotas = { dashboard: () => viewDashboard(), agenda: () => viewAgenda(), clientes: () => viewClientes(), catalogo: () => viewCatalogo(), financeiro: () => viewFinanceiro(), estoque: () => viewEstoque(), vendas: () => viewVendas(), relatorios: () => viewRelatorios(), config: () => viewConfig() };
+const titulos = { dashboard: 'Início', agenda: 'Agenda', clientes: 'Clientes', catalogo: 'Catálogo', financeiro: 'Financeiro', estoque: 'Estoque', vendas: 'Vendas', relatorios: 'Relatórios', config: 'Configurações' };
 let rota = 'dashboard';
 const st = { mes: new Date(), dia: hoje(), cat: '', busca: '', fmes: new Date(), et: 'produtos', pcat: '' };
 function ir(r) {
   rota = r; $('#titulo').textContent = r === 'dashboard' ? (db.config.nome || 'Festa Fácil') : titulos[r];
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.r === r));
-  $('#btnAdd').hidden = !['agenda', 'clientes', 'catalogo', 'financeiro', 'estoque'].includes(r);
+  $('#btnAdd').hidden = !['agenda', 'clientes', 'catalogo', 'financeiro', 'estoque', 'vendas'].includes(r);
   render();
 }
 function render() { rotas[rota](); window.scrollTo(0, 0); }
@@ -120,8 +120,10 @@ $('#btnAdd').onclick = () => {
   else if (rota === 'clientes') formCliente();
   else if (rota === 'catalogo') formCatalogo(st.cat);
   else if (rota === 'financeiro') formLanc();
-  else if (rota === 'estoque') formProduto();
+  else if (rota === 'estoque') (st.et === 'kits' ? formKit() : formProduto());
+  else if (rota === 'vendas') (st.vt === 'artes' ? formArte() : formVenda());
 };
+$('#btnCfg').onclick = () => ir('config');
 const app = $('#app');
 
 /* ===== Dashboard ===== */
@@ -214,6 +216,7 @@ function formEvento(ev, data) {
     <div class="chips" id="fchips"><button type="button" data-fc="" class="on">Todos</button>${db.categorias.map(c => `<button type="button" data-fc="${c.id}">${esc(c.nome)}</button>`).join('')}<button type="button" data-fc="_sel">✔ Marcados</button></div>
     <div id="fitens">${db.catalogo.map(it => linhaItemEvento(it, ev)).join('') || '<div class="s" style="color:var(--mut)">Catálogo vazio</div>'}</div>
     <div class="total" id="ftot"></div><div id="favisos"></div>
+    ${novo ? '' : '<div id="fkitsBox"></div>'}
     <h3 style="margin:16px 0 0">Pagamento</h3>
     <label>Sinal / entrada (R$)</label><input id="fs" inputmode="decimal" value="${ev.sinal || ''}">
     <select id="fsf" style="margin-top:6px">${optsForma(ev.sinalForma)}</select>
@@ -252,6 +255,7 @@ function formEvento(ev, data) {
       b.querySelectorAll('.it').forEach(w => { w.hidden = !((!fcat || (fcat === '_sel' ? marcado(w) : w.dataset.cat === fcat)) && w.dataset.nome.includes(q)); });
     };
     b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
+    if (!novo) desenhaKitsEvento(ev, $('#fkitsBox'));
     $('#fbusca').addEventListener('input', filtra);
     $('#fchips').onclick = e => { const t = e.target.closest('[data-fc]'); if (!t) return; fcat = t.dataset.fc; b.querySelectorAll('#fchips button').forEach(x => x.classList.toggle('on', x === t)); filtra(); };
     $('#fsave').onclick = () => {

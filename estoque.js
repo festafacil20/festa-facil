@@ -1,17 +1,16 @@
 'use strict';
-/* ===== Estoque de produtos (insumos) ===== */
-// Cada produto é controlado numa unidade base (ml, g ou un). Compras e baixas aceitam L/kg com conversão.
+/* ===== Estoque de produtos (insumos) e kits ===== */
+// p.un = unidade de medida escolhida (ml, L, g, kg, un). O saldo é guardado na unidade base (ml, g, un).
 const UNS = { ml: { base: 'ml', k: 1 }, L: { base: 'ml', k: 1000 }, g: { base: 'g', k: 1 }, kg: { base: 'g', k: 1000 }, un: { base: 'un', k: 1 } };
 const UNS_DA_BASE = { ml: ['ml', 'L'], g: ['g', 'kg'], un: ['un'] };
+const NOMES_UN = { ml: 'Mililitros (ml)', L: 'Litros (L)', g: 'Gramas (g)', kg: 'Quilos (kg)', un: 'Unidade (un)' };
+const baseDe = u => (UNS[u] || UNS.un).base;
 const optsUn = (base, sel) => UNS_DA_BASE[base].map(u => `<option ${u === sel ? 'selected' : ''}>${u}</option>`).join('');
 const rn = n => (Math.round(n * 100) / 100).toLocaleString('pt-BR');
-function fmtQtd(q, un) {
-  if (un === 'ml') return Math.abs(q) >= 1000 ? rn(q / 1000) + ' L' : rn(q) + ' ml';
-  if (un === 'g') return Math.abs(q) >= 1000 ? rn(q / 1000) + ' kg' : rn(q) + ' g';
-  return rn(q) + ' un';
-}
+const nStr = n => String(+n.toFixed(3));
+function fmtQtd(q, un) { const u = UNS[un] || UNS.un; return rn(q / u.k) + ' ' + (UNS[un] ? un : 'un'); }
 const saldoProd = p => db.movs.filter(m => m.produtoId === p.id).reduce((s, m) => s + m.qtd, 0);
-function custoUn(p) {
+function custoUn(p) { // custo por unidade base (ml, g ou un)
   const cs = db.compras.filter(c => c.produtoId === p.id), q = cs.reduce((s, c) => s + c.qtdBase, 0);
   return q ? cs.reduce((s, c) => s + c.valor, 0) / q : 0;
 }
@@ -26,8 +25,34 @@ function somaMeses(dataIso, n) {
   return iso(d);
 }
 
+/* ---- composição (usada por kits e por receitas de artes) ---- */
+const custoComp = comp => comp.reduce((s, c) => { const p = by(db.produtos, c.produtoId); return s + (p ? custoUn(p) * c.qtd : 0); }, 0);
+const txtComp = comp => comp.map(c => { const p = by(db.produtos, c.produtoId); return p ? `${fmtQtd(c.qtd, p.un)} de ${p.nome}` : '(produto excluído)'; }).join(' + ');
+const faltasComp = (comp, mult) => comp.filter(c => { const p = by(db.produtos, c.produtoId); return p && saldoProd(p) < c.qtd * mult; }).map(c => { const p = by(db.produtos, c.produtoId); return `${p.nome}: precisa ${fmtQtd(c.qtd * mult, p.un)}, tem ${fmtQtd(saldoProd(p), p.un)}`; });
+const quantosDa = comp => { const v = comp.filter(c => c.qtd > 0).map(c => { const p = by(db.produtos, c.produtoId); return p ? Math.floor(Math.max(0, saldoProd(p)) / c.qtd) : 0; }); return v.length ? Math.min(...v) : 0; };
+function baixarComp(comp, mult, extra) { // lança as baixas de cada componente num mesmo lote
+  const lote = uid();
+  comp.forEach(c => { if (c.qtd > 0 && by(db.produtos, c.produtoId)) db.movs.push({ id: uid(), produtoId: c.produtoId, data: hoje(), tipo: 'baixa', qtd: -(c.qtd * mult), lote, ...extra }); });
+  return lote;
+}
+function editorComp(host, comp) {
+  const linha = (c, i) => {
+    const p = by(db.produtos, c.produtoId) || db.produtos[0], base = baseDe(p.un);
+    const u = c.u && UNS[c.u] && UNS[c.u].base === base ? c.u : p.un; c.u = u; c.produtoId = p.id;
+    return `<div class="krow" data-i="${i}"><select data-kp>${db.produtos.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select><div class="par"><input data-kq inputmode="decimal" placeholder="Quantidade" value="${c.qtd ? nStr(c.qtd / UNS[u].k) : ''}"><select data-ku>${optsUn(base, u)}</select><button type="button" class="btn del sm" data-kx>✕</button></div></div>`;
+  };
+  const desenha = () => { host.innerHTML = comp.map(linha).join('') || '<div class="s" style="color:var(--mut)">Nenhum produto adicionado</div>'; };
+  const le = () => host.querySelectorAll('.krow').forEach(r => { const c = comp[+r.dataset.i]; c.produtoId = r.querySelector('[data-kp]').value; c.u = r.querySelector('[data-ku]').value; c.qtd = num(r.querySelector('[data-kq]').value) * UNS[c.u].k; });
+  host.onchange = e => { le(); if (e.target.matches('[data-kp]')) { comp[+e.target.closest('.krow').dataset.i].u = null; desenha(); } };
+  host.oninput = le;
+  host.onclick = e => { const x = e.target.closest('[data-kx]'); if (x) { le(); comp.splice(+x.closest('.krow').dataset.i, 1); desenha(); } };
+  desenha();
+  return { adicionar() { le(); comp.push({ produtoId: db.produtos[0].id, qtd: 0, u: null }); desenha(); }, le };
+}
+
+/* ---- tela ---- */
 function viewEstoque() {
-  const abas = [['produtos', '📦 Produtos'], ['compras', '🛒 Compras'], ['hist', '📋 Histórico']];
+  const abas = [['produtos', '📦 Produtos'], ['kits', '🧰 Kits'], ['compras', '🛒 Compras'], ['hist', '📋 Histórico']];
   let corpo = '';
   if (st.et === 'produtos') {
     if (st.pcat && !by(db.pcats, st.pcat)) st.pcat = '';
@@ -36,9 +61,12 @@ function viewEstoque() {
     ${st.pcat ? '<button class="btn sec sm" id="edPcat" style="margin-bottom:10px">✎ Editar categoria</button>' : ''}
     <div class="card">${lista.map(p => {
       const s = saldoProd(p), cu = custoUn(p), pc = by(db.pcats, p.cat);
-      return `<div class="row" data-p="${p.id}"><div><div class="t">${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * (p.un === 'un' ? 1 : (p.un === 'ml' || p.un === 'g' ? 1000 : 1))) + '/' + (p.un === 'ml' ? 'L' : p.un === 'g' ? 'kg' : 'un') : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
+      return `<div class="row" data-p="${p.id}"><div><div class="t">${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * UNS[p.un].k) + '/' + p.un : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
     }).join('') || '<div class="vazio">Nenhum produto cadastrado</div>'}</div>
     <div style="display:flex;gap:8px"><button class="btn full" id="bcompra">🛒 Lançar compra</button><button class="btn sec full" id="bbaixa">➖ Dar baixa</button></div>`;
+  } else if (st.et === 'kits') {
+    corpo = `<div class="card">${db.kits.map(k => `<div class="row" data-k="${k.id}"><div style="flex:1"><div class="t">${esc(k.nome)}</div><div class="s">${esc(txtComp(k.itens)) || 'sem produtos'}</div><div class="s">Custo ≈ ${brl(custoComp(k.itens))} · dá para ${quantosDa(k.itens)} kit(s) com o estoque atual${k.vinculo ? ' · ligado ao catálogo' : ''}</div></div>›</div>`).join('') || '<div class="vazio">Nenhum kit. Um kit é uma lista de produtos que você usa junto (ex.: kit oficina de slime).</div>'}</div>
+    <button class="btn full" id="bkit">＋ Novo kit</button>${db.kits.length ? '<button class="btn sec full" id="bbkit">➖ Dar baixa de um kit</button>' : ''}`;
   } else if (st.et === 'compras') {
     const lista = [...db.compras].sort((a, b) => b.data.localeCompare(a.data));
     corpo = `<div class="card">${lista.map(c => { const p = by(db.produtos, c.produtoId); return `<div class="row" data-c="${c.id}"><div><div class="t">${esc(p ? p.nome : '(produto excluído)')}</div><div class="s">${fdata(c.data)} · ${rn(c.nEmb)} emb. · ${esc(FORMAS_ALL[c.forma] || 'pagamento n/i')}${c.parcelas > 1 ? ' · ' + c.parcelas + 'x' : ''}${c.fornecedor ? ' · ' + esc(c.fornecedor) : ''}</div></div><b>${brl(c.valor)}</b></div>`; }).join('') || '<div class="vazio">Nenhuma compra lançada</div>'}</div>
@@ -55,12 +83,15 @@ function viewEstoque() {
   app.querySelectorAll('[data-et]').forEach(b => b.onclick = () => { st.et = b.dataset.et; viewEstoque(); });
   app.querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { st.pcat = b.dataset.pc; viewEstoque(); });
   app.querySelectorAll('[data-p]').forEach(r => r.onclick = () => formProduto(by(db.produtos, r.dataset.p)));
+  app.querySelectorAll('[data-k]').forEach(r => r.onclick = () => formKit(by(db.kits, r.dataset.k)));
   app.querySelectorAll('[data-c]').forEach(r => r.onclick = () => detalheCompra(by(db.compras, r.dataset.c)));
   app.querySelectorAll('[data-m]').forEach(r => r.onclick = () => detalheMov(by(db.movs, r.dataset.m)));
   const nc = $('#novaPcat'); if (nc) nc.onclick = () => formPcat();
   const ec = $('#edPcat'); if (ec) ec.onclick = () => formPcat(by(db.pcats, st.pcat));
   const bc = $('#bcompra'); if (bc) bc.onclick = () => formCompra();
   const bb = $('#bbaixa'); if (bb) bb.onclick = () => formBaixa();
+  const bk = $('#bkit'); if (bk) bk.onclick = () => formKit();
+  const bbk = $('#bbkit'); if (bbk) bbk.onclick = () => formBaixaKit();
 }
 
 function formPcat(c) {
@@ -74,35 +105,34 @@ function formPcat(c) {
 
 function formProduto(p) {
   const novo = !p; p = p || { id: uid(), nome: '', cat: st.pcat || '', un: 'ml', emb: '', conteudo: 0, minimo: 0 };
+  const opcoesUn = (novo ? Object.keys(UNS) : UNS_DA_BASE[baseDe(p.un)]).map(u => `<option value="${u}" ${u === p.un ? 'selected' : ''}>${NOMES_UN[u]}</option>`).join('');
   sheet(novo ? 'Novo produto' : 'Produto', `
     <label>Nome</label><input id="pn" value="${esc(p.nome)}" placeholder="Ex.: Cola branca">
     <label>Categoria</label><select id="pc"><option value="">Sem categoria</option>${db.pcats.map(c => `<option value="${c.id}" ${c.id === p.cat ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
-    <label>Controlar o estoque em</label><select id="pu" ${novo ? '' : 'disabled'}><option value="ml" ${p.un === 'ml' ? 'selected' : ''}>Líquido (ml / litros)</option><option value="g" ${p.un === 'g' ? 'selected' : ''}>Peso (g / kg)</option><option value="un" ${p.un === 'un' ? 'selected' : ''}>Unidades</option></select>
+    <label>Unidade de medida</label><select id="pu">${opcoesUn}</select>
     <label>Embalagem que eu compro (nome)</label><input id="pe" value="${esc(p.emb)}" placeholder="Ex.: galão, pacote, caixa">
-    <label>Quanto vem em cada embalagem</label><div class="par"><input id="pcont" inputmode="decimal" value=""><select id="pcu"></select></div>
-    <label>Avisar quando o estoque chegar em</label><div class="par"><input id="pmin" inputmode="decimal" value=""><select id="pmu"></select></div>
+    <label>Quanto vem em cada embalagem</label><div class="par"><input id="pcont" inputmode="decimal"><select id="pcu"></select></div>
+    <label>Avisar quando o estoque chegar em</label><div class="par"><input id="pmin" inputmode="decimal"><select id="pmu"></select></div>
     ${novo ? '<label>Já tenho em estoque (saldo inicial)</label><div class="par"><input id="pini" inputmode="decimal" placeholder="0"><select id="piu"></select></div>' : ''}
     <button class="btn full" id="psave">Salvar</button>
-    ${novo ? '' : '<button class="btn sec full" id="pcompra">🛒 Lançar compra</button><button class="btn sec full" id="pbaixa">➖ Dar baixa</button><button class="btn del full" id="pdel">Excluir produto</button>'}`, b => {
+    ${novo ? '' : '<button class="btn sec full" id="pcompra">🛒 Lançar compra</button><button class="btn sec full" id="pbaixa">➖ Dar baixa</button><button class="btn del full" id="pdel">Excluir produto</button>'}`, () => {
     const un = () => $('#pu').value;
-    const mostra = (id, q) => { const u = un(); const sel = (u === 'un') ? 'un' : (q >= 1000 ? UNS_DA_BASE[u][1] : u); return { sel, val: q ? (q / UNS[sel].k) : '' }; };
     const monta = () => {
-      [['#pcont', '#pcu', p.conteudo], ['#pmin', '#pmu', p.minimo]].forEach(([i, s, q]) => {
-        const f = mostra(i, q); $(s).innerHTML = optsUn(un(), f.sel); if (q && !$(i).value) $(i).value = rn(f.val).replace(/\./g, '').replace(',', '.');
-      });
-      const pi = $('#piu'); if (pi) pi.innerHTML = optsUn(un(), un() === 'un' ? 'un' : un());
+      const u = un(), base = baseDe(u);
+      [['#pcont', '#pcu', p.conteudo], ['#pmin', '#pmu', p.minimo]].forEach(([i, s, q]) => { $(s).innerHTML = optsUn(base, u); if (q && !$(i).value) $(i).value = nStr(q / UNS[u].k); });
+      const pi = $('#piu'); if (pi) pi.innerHTML = optsUn(base, u);
     };
-    monta(); $('#pu').onchange = () => { $('#pcont').value = ''; $('#pmin').value = ''; p.conteudo = 0; p.minimo = 0; monta(); };
+    monta(); $('#pu').onchange = () => { $('#pcont').value = ''; $('#pmin').value = ''; monta(); };
     const base = (i, s) => num($(i).value) * UNS[$(s).value].k;
     $('#psave').onclick = () => {
       const n = $('#pn').value.trim(); if (!n) return toast('Informe o nome');
-      Object.assign(p, { nome: n, cat: $('#pc').value, emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu') });
-      if (novo) { p.un = un(); db.produtos.push(p); const ini = base('#pini', '#piu'); if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
+      Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu') });
+      if (novo) { db.produtos.push(p); const ini = base('#pini', '#piu'); if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
       save(); fechar(); render(); toast('Produto salvo');
     };
     if (!novo) {
       $('#pcompra').onclick = () => formCompra(p.id); $('#pbaixa').onclick = () => formBaixa(p.id);
-      $('#pdel').onclick = () => { if (db.movs.some(m => m.produtoId === p.id) || db.compras.some(c => c.produtoId === p.id)) return toast('Produto tem histórico; não dá para excluir'); if (!confirm('Excluir produto?')) return; db.produtos = db.produtos.filter(x => x.id !== p.id); save(); fechar(); render(); };
+      $('#pdel').onclick = () => { if (db.movs.some(m => m.produtoId === p.id) || db.compras.some(c => c.produtoId === p.id)) return toast('Produto tem histórico; não dá para excluir'); if (db.kits.some(k => k.itens.some(c => c.produtoId === p.id)) || db.artes.some(a => (a.receita || []).some(c => c.produtoId === p.id))) return toast('Produto está em um kit ou receita'); if (!confirm('Excluir produto?')) return; db.produtos = db.produtos.filter(x => x.id !== p.id); save(); fechar(); render(); };
     }
   });
 }
@@ -120,15 +150,15 @@ function formCompra(prodId) {
     <label>Parcelas (1 = à vista)</label><input id="cpa" type="number" min="1" max="36" inputmode="numeric" value="1">
     <label>Data da 1ª parcela</label><input type="date" id="cp1" value="${hoje()}">
     <div class="s" id="cres" style="margin-top:8px;color:var(--mut)"></div>
-    <button class="btn full" id="csave">Lançar compra</button>`, () => {
+    <button class="btn full" id="csave">Lançar compra</button>`, b => {
     let manual = false;
     const atual = () => {
       const p = by(db.produtos, $('#cp').value), n = num($('#cn').value), v = num($('#cv').value), pa = Math.max(1, parseInt($('#cpa').value) || 1);
       $('#cemb').textContent = p && p.conteudo ? `(cada uma = ${fmtQtd(p.conteudo, p.un)})` : '';
       $('#cres').textContent = (p && p.conteudo ? `Entra no estoque: ${fmtQtd(n * p.conteudo, p.un)}. ` : '') + (v ? (pa > 1 ? `${pa}x de ${brl(v / pa)}` : 'À vista: ' + brl(v)) : '');
     };
-    $('#sheetBody').addEventListener('input', e => { if (e.target.id === 'cp1') manual = true; if (!manual && (e.target.id === 'cd')) $('#cp1').value = $('#cd').value; atual(); });
-    $('#sheetBody').addEventListener('change', atual); atual();
+    b.addEventListener('input', e => { if (e.target.id === 'cp1') manual = true; if (!manual && e.target.id === 'cd') $('#cp1').value = $('#cd').value; atual(); });
+    b.addEventListener('change', atual); atual();
     $('#csave').onclick = () => {
       const p = by(db.produtos, $('#cp').value), nEmb = num($('#cn').value), valor = num($('#cv').value), pa = Math.max(1, Math.min(36, parseInt($('#cpa').value) || 1));
       if (nEmb <= 0) return toast('Informe a quantidade'); if (valor <= 0) return toast('Informe o valor pago');
@@ -165,9 +195,9 @@ function formBaixa(prodId) {
     <label>Motivo</label><select id="bm"><option>Kit de festa</option><option>Uso interno</option><option>Perda / vencimento</option><option>Outro</option></select>
     <label>Festa (opcional)</label><select id="be"><option value="">Nenhuma</option>${evs.map(e => { const c = by(db.clientes, e.clienteId); return `<option value="${e.id}">${fdata(e.data)} · ${esc(c ? c.nome : '')}</option>`; }).join('')}</select>
     <div class="s" id="bres" style="margin-top:8px"></div>
-    <button class="btn full" id="bsave">Dar baixa</button>`, () => {
+    <button class="btn full" id="bsave">Dar baixa</button>`, b => {
     const prod = () => by(db.produtos, $('#bp').value);
-    const un = () => { const p = prod(); $('#bu').innerHTML = optsUn(p.un, p.un); };
+    const un = () => { const p = prod(); $('#bu').innerHTML = optsUn(baseDe(p.un), p.un); };
     const atual = () => {
       const p = prod(), q = num($('#bq').value) * UNS[$('#bu').value].k, s = saldoProd(p), cu = custoUn(p);
       $('#bsal').textContent = 'Saldo atual: ' + fmtQtd(s, p.un);
@@ -175,7 +205,7 @@ function formBaixa(prodId) {
     };
     un(); atual();
     $('#bp').onchange = () => { un(); atual(); };
-    $('#sheetBody').addEventListener('input', atual); $('#sheetBody').addEventListener('change', atual);
+    b.addEventListener('input', atual); b.addEventListener('change', atual);
     $('#bsave').onclick = () => {
       const p = prod(), q = num($('#bq').value) * UNS[$('#bu').value].k;
       if (q <= 0) return toast('Informe a quantidade');
@@ -188,9 +218,94 @@ function formBaixa(prodId) {
 function detalheMov(m) {
   const p = by(db.produtos, m.produtoId);
   if (m.compraId) return detalheCompra(by(db.compras, m.compraId));
+  const lote = m.lote ? db.movs.filter(x => x.lote === m.lote) : [m];
   sheet('Movimentação', `<div class="row"><span>Produto</span><b>${esc(p ? p.nome : '')}</b></div><div class="row"><span>Quantidade</span><b>${m.qtd < 0 ? '−' : '+'}${fmtQtd(Math.abs(m.qtd), p ? p.un : 'un')}</b></div>
     <div class="row"><span>Data</span><b>${fdata(m.data)}</b></div><div class="row"><span>Motivo</span><b>${esc(m.motivo || '')}</b></div>
-    <button class="btn del full" id="mdel">Desfazer esta movimentação</button>`, () => {
-    $('#mdel').onclick = () => { if (!confirm('Desfazer? O saldo do produto volta ao que era.')) return; db.movs = db.movs.filter(x => x.id !== m.id); save(); fechar(); render(); };
+    <button class="btn del full" id="mdel">${lote.length > 1 ? `Desfazer o lote inteiro (${lote.length} produtos)` : 'Desfazer esta movimentação'}</button>`, () => {
+    $('#mdel').onclick = () => {
+      if (!confirm(lote.length > 1 ? 'Desfazer este lote? O estoque de todos os produtos do lote volta ao que era (a produção/venda ligada também é revertida).' : 'Desfazer? O saldo do produto volta ao que era.')) return;
+      const ids = new Set(lote.map(x => x.id)); db.movs = db.movs.filter(x => !ids.has(x.id));
+      if (m.lote) { db.pmovs = db.pmovs.filter(x => x.lote !== m.lote); const ev = m.eventoId && by(db.eventos, m.eventoId); if (ev && ev.kitsLote === m.lote) delete ev.kitsLote; }
+      save(); fechar(); render();
+    };
   });
+}
+
+/* ---- kits ---- */
+function formKit(k) {
+  if (!db.produtos.length) { toast('Cadastre os produtos antes de criar um kit'); st.et = 'produtos'; return formProduto(); }
+  const novo = !k; k = k || { id: uid(), nome: '', itens: [], vinculo: null };
+  const comp = k.itens.map(c => ({ ...c }));
+  const opcVinc = db.catalogo.flatMap(it => mod(it) === 'f' ? FAIXAS.map(f => [`${it.id}|${f}`, `${it.nome} · até ${f} crianças`]) : [[`${it.id}|`, it.nome]]);
+  const vv = k.vinculo ? `${k.vinculo.itemId}|${k.vinculo.fx || ''}` : '';
+  sheet(novo ? 'Novo kit' : 'Kit', `
+    <label>Nome do kit</label><input id="kn" value="${esc(k.nome)}" placeholder="Ex.: Kit oficina slime - 10 crianças">
+    <label>O que vai no kit</label><div id="kcomp"></div>
+    <button class="btn sec sm" id="kadd" type="button" style="margin-top:8px">＋ Adicionar produto</button>
+    <div class="s" id="kcusto" style="margin-top:10px;color:var(--mut)"></div>
+    <label>Ligar a um item do catálogo (opcional)</label><select id="kv"><option value="">Não ligar</option>${opcVinc.map(([v, t]) => `<option value="${v}" ${v === vv ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+    <div class="s" style="color:var(--mut)">Ligado, o kit aparece na festa que tiver esse item e você dá baixa do estoque com um toque.</div>
+    <button class="btn full" id="ksave">Salvar kit</button>
+    ${novo ? '' : '<button class="btn sec full" id="kbaixa">➖ Dar baixa deste kit</button><button class="btn del full" id="kdel">Excluir kit</button>'}`, b => {
+    const ed = editorComp($('#kcomp'), comp);
+    const custo = () => { ed.le(); $('#kcusto').textContent = 'Custo estimado do kit: ' + brl(custoComp(comp)) + (quantosDa(comp) || comp.length ? ` · dá para ${quantosDa(comp)} kit(s) com o estoque atual` : ''); };
+    b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
+    $('#kadd').onclick = () => { ed.adicionar(); custo(); };
+    $('#ksave').onclick = () => {
+      ed.le(); const n = $('#kn').value.trim(); if (!n) return toast('Informe o nome do kit');
+      const itens = comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })); if (!itens.length) return toast('Adicione ao menos um produto com quantidade');
+      const [iid, fx] = $('#kv').value ? $('#kv').value.split('|') : [null, ''];
+      Object.assign(k, { nome: n, itens, vinculo: iid ? { itemId: iid, fx } : null });
+      if (novo) db.kits.push(k); save(); fechar(); st.et = 'kits'; render(); toast('Kit salvo');
+    };
+    if (!novo) { $('#kbaixa').onclick = () => formBaixaKit(k.id); $('#kdel').onclick = () => { if (!confirm('Excluir o kit? (baixas já feitas continuam no histórico)')) return; db.kits = db.kits.filter(x => x.id !== k.id); save(); fechar(); render(); }; }
+  });
+}
+function formBaixaKit(kitId) {
+  if (!db.kits.length) { toast('Crie um kit primeiro'); return formKit(); }
+  const k0 = by(db.kits, kitId) || db.kits[0];
+  const evs = [...db.eventos].filter(e => e.status !== 'cancelado').sort((a, b) => b.data.localeCompare(a.data)).slice(0, 40);
+  sheet('Dar baixa de kit', `
+    <label>Kit</label><select id="xk">${db.kits.map(k => `<option value="${k.id}" ${k.id === k0.id ? 'selected' : ''}>${esc(k.nome)}</option>`).join('')}</select>
+    <label>Quantos kits usei</label><input id="xq" type="number" min="1" inputmode="numeric" value="1">
+    <label>Festa (opcional)</label><select id="xe"><option value="">Nenhuma</option>${evs.map(e => { const c = by(db.clientes, e.clienteId); return `<option value="${e.id}">${fdata(e.data)} · ${esc(c ? c.nome : '')}</option>`; }).join('')}</select>
+    <div id="xres" style="margin-top:10px"></div>
+    <button class="btn full" id="xsave">Dar baixa do kit</button>`, b => {
+    const kit = () => by(db.kits, $('#xk').value), mult = () => Math.max(1, parseInt($('#xq').value) || 1);
+    const atual = () => { const k = kit(), m = mult(); $('#xres').innerHTML = k.itens.map(c => { const p = by(db.produtos, c.produtoId); return p ? `<div class="row"><span>${esc(p.nome)}</span><span>−${fmtQtd(c.qtd * m, p.un)} <small style="color:var(--mut)">(tem ${fmtQtd(saldoProd(p), p.un)})</small></span></div>` : ''; }).join('') + `<div class="s" style="margin-top:6px">Custo dos produtos: <b>${brl(custoComp(k.itens) * m)}</b></div>`; };
+    b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
+    $('#xsave').onclick = () => {
+      const k = kit(), m = mult(), f = faltasComp(k.itens, m);
+      if (f.length && !confirm('Estoque insuficiente:\n\n' + f.join('\n') + '\n\nDar baixa mesmo assim (ficará negativo)?')) return;
+      baixarComp(k.itens, m, { motivo: 'Kit: ' + k.nome, kitId: k.id, eventoId: $('#xe').value || '' });
+      save(); fechar(); st.et = 'kits'; if (rota === 'estoque') render(); toast('Baixa do kit lançada');
+    };
+  });
+}
+// Kits ligados aos itens de uma festa
+function kitsDoEvento(ev) {
+  const out = [];
+  db.kits.forEach(k => {
+    if (!k.vinculo) return;
+    (ev.itens || []).filter(i => i.id === k.vinculo.itemId && (!k.vinculo.fx || String(i.fx) === String(k.vinculo.fx))).forEach(i => { const it = cit(i.id); out.push({ kit: k, q: it && mod(it) === 'f' ? 1 : (i.q || 1) }); });
+  });
+  return out;
+}
+function desenhaKitsEvento(ev, box) {
+  const ks = kitsDoEvento(ev), feito = ev.kitsLote && db.movs.some(m => m.lote === ev.kitsLote);
+  if (!ks.length && !feito) { box.innerHTML = ''; return; }
+  box.innerHTML = `<h3 style="margin:16px 0 4px">📦 Estoque desta festa</h3>` + (feito
+    ? '<div class="s" style="color:var(--ok)">✔ Baixa dos kits já lançada no estoque.</div><button class="btn sec sm" id="kdesf" type="button" style="margin-top:6px">Desfazer baixa dos kits</button>'
+    : ks.map(x => `<div class="row"><span>${esc(x.kit.nome)}${x.q > 1 ? ' × ' + x.q : ''}</span><span class="s">${brl(custoComp(x.kit.itens) * x.q)}</span></div>`).join('') + '<button class="btn sec full" id="kbx" type="button">Dar baixa dos kits no estoque</button><div class="s" style="color:var(--mut);margin-top:4px">Usa os itens já salvos neste evento.</div>');
+  const bx = box.querySelector('#kbx'), bd = box.querySelector('#kdesf');
+  if (bx) bx.onclick = () => {
+    const comp = ks.flatMap(x => x.kit.itens.map(c => ({ ...c, qtd: c.qtd * x.q }))), f = faltasComp(comp, 1);
+    if (f.length && !confirm('Estoque insuficiente:\n\n' + f.join('\n') + '\n\nDar baixa mesmo assim?')) return;
+    const lote = baixarComp(comp, 1, { motivo: 'Kits da festa: ' + ks.map(x => x.kit.nome).join(', '), eventoId: ev.id, kitId: ks[0].kit.id });
+    const e = by(db.eventos, ev.id); e.kitsLote = lote; ev.kitsLote = lote; save(); desenhaKitsEvento(ev, box); toast('Baixa lançada no estoque');
+  };
+  if (bd) bd.onclick = () => {
+    if (!confirm('Desfazer a baixa dos kits desta festa? O estoque volta ao que era.')) return;
+    db.movs = db.movs.filter(m => m.lote !== ev.kitsLote); const e = by(db.eventos, ev.id); delete e.kitsLote; delete ev.kitsLote; save(); desenhaKitsEvento(ev, box); toast('Baixa desfeita');
+  };
 }

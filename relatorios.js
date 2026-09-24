@@ -50,6 +50,10 @@ function relDados() {
   R.valorEstoque = R.prods.reduce((s, x) => s + x.valor, 0);
   R.movs = db.movs.filter(m => noP(m.data)).sort((a, b) => a.data.localeCompare(b.data));
   R.compras = db.compras.filter(c => noP(c.data)).sort((a, b) => a.data.localeCompare(b.data));
+  R.vendas = db.vendas.filter(v => noP(v.data)).sort((a, b) => a.data.localeCompare(b.data));
+  R.vendaTotal = R.vendas.reduce((s, v) => s + totalVenda(v), 0); R.vendaCusto = R.vendas.reduce((s, v) => s + custoVenda(v), 0);
+  R.vendaArte = agrupa(R.vendas.flatMap(v => v.itens.map(i => ({ n: (by(db.artes, i.arteId) || { nome: '?' }).nome, v: i.preco * i.q }))), x => x.n, x => x.v);
+  R.artes = db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return { a, s, c, valor: Math.max(0, s) * c }; });
   return R;
 }
 
@@ -84,6 +88,9 @@ function viewRelatorios() {
     <h3 style="margin-top:14px">Por categoria do catálogo</h3>${barras(R.fatCat, 'var(--p)', R.fatCat.reduce((s, x) => s + x.v, 0))}
     <h3 style="margin-top:14px">Itens que mais faturam</h3>${barras(R.fatItem, 'var(--p2)', R.fatItem.reduce((s, x) => s + x.v, 0), 6)}
     <h3 style="margin-top:14px">Melhores clientes</h3>${barras(R.fatCli, 'var(--warn)', R.fatTotal, 5)}</div>
+  <div class="card"><h3>🛍️ Vendas de artes (${R.vendas.length})</h3><div class="row"><span>Vendido</span><b>${brl(R.vendaTotal)}</b></div><div class="row"><span>Custo</span><b class="neg">${brl(R.vendaCusto)}</b></div><div class="row"><span><b>Lucro</b></span><b class="${R.vendaTotal - R.vendaCusto >= 0 ? 'pos' : 'neg'}">${brl(R.vendaTotal - R.vendaCusto)}</b></div>
+    <h3 style="margin-top:14px">O que mais vende</h3>${barras(R.vendaArte, 'var(--p)', R.vendaTotal, 6)}
+    <h3 style="margin-top:14px">Estoque de artes</h3>${R.artes.map(x => `<div class="row"><span>${esc(x.a.nome)}</span><b>${x.s} un</b></div>`).join('') || '<div class="vazio">Nenhuma arte cadastrada</div>'}</div>
   <div class="card"><h3>📦 Estoque de produtos</h3><div class="row"><span>Valor em estoque (custo médio)</span><b>${brl(R.valorEstoque)}</b></div>
     ${R.prods.map(x => `<div class="row"><div><div class="t">${esc(x.p.nome)} ${x.baixo ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${esc(x.cat)}</div></div><b>${fmtQtd(x.s, x.p.un)}</b></div>`).join('') || '<div class="vazio">Nenhum produto</div>'}</div>
   <div class="card"><h3>Exportar${semDados ? ' <small style="color:var(--mut)">(sem dados no período)</small>' : ''}</h3><p class="s" style="color:var(--mut);margin-top:0">Exporta o período e os filtros acima: lançamentos, resumo por categoria, eventos, compras, movimentações e posição do estoque.</p>
@@ -146,12 +153,14 @@ function planilhasRel(R) {
       [db.config.nome + ' - Relatório financeiro'], [filtros], [],
       ['Entrou', M(R.receita)], ['Saiu', M(R.despesa)], ['Saldo', M(R.saldo)], [],
       ['Mês', 'Entrou', 'Saiu', 'Saldo'], ...R.meses.map(m => [m.l, M(m.r), M(m.d), M(m.r - m.d)]), [],
-      ['Faturamento dos eventos', M(R.fatTotal)], ['Custo dos itens', M(R.fatCusto)], ['Lucro dos eventos', M(R.fatTotal - R.fatCusto)], ['Valor em estoque (custo médio)', M(R.valorEstoque)]], cab: 7 },
+      ['Faturamento dos eventos', M(R.fatTotal)], ['Custo dos itens', M(R.fatCusto)], ['Lucro dos eventos', M(R.fatTotal - R.fatCusto)], ['Valor em estoque (custo médio)', M(R.valorEstoque)], ['Vendas de artes', M(R.vendaTotal)], ['Lucro das vendas de artes', M(R.vendaTotal - R.vendaCusto)]], cab: 7 },
     { nome: 'Lançamentos', larg: [12, 10, 26, 44, 22, 14], linhas: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Forma de pagamento', 'Valor'], ...R.ls.map(l => [fdata(l.data), l.tipo === 'r' ? 'Receita' : 'Despesa', l.cat, l.desc || '', nomeForma(l.forma), M(l.valor)])] },
     { nome: 'Por categoria', larg: [14, 30, 16, 12], linhas: [['Tipo', 'Categoria', 'Total', 'Lançamentos'], ...R.recCat.map(x => ['Receita', x.k, M(x.v), x.n]), ...R.despCat.map(x => ['Despesa', x.k, M(x.v), x.n])] },
     { nome: 'Por forma pagto', larg: [14, 24, 16, 12], linhas: [['Tipo', 'Forma', 'Total', 'Lançamentos'], ...R.recForma.map(x => ['Receita', x.k, M(x.v), x.n]), ...R.despForma.map(x => ['Despesa', x.k, M(x.v), x.n])] },
     { nome: 'Eventos', larg: [12, 26, 30, 14, 14, 14, 14, 14], linhas: [['Data', 'Cliente', 'Local', 'Status', 'Total', 'Custo', 'Lucro', 'Sinal'], ...R.evs.map(e => [fdata(e.data), nomeEv(e), e.local || '', STATUS[e.status], M(totalEvento(e)), M(custoEvento(e)), M(totalEvento(e) - custoEvento(e)), M(e.sinal || 0)])] },
     { nome: 'Faturamento catálogo', larg: [28, 16, 16, 16], linhas: [['Categoria', 'Faturamento', 'Custo', 'Lucro'], ...R.fatCat.map(x => [x.k, M(x.v), M(x.c), M(x.v - x.c)]), [], ['Item', 'Faturamento', 'Vezes'], ...R.fatItem.map(x => [x.k, M(x.v), x.n])], cab: 0, negrito: [R.fatCat.length + 2] },
+    { nome: 'Vendas de artes', larg: [12, 24, 40, 14, 14, 14, 20, 12], linhas: [['Data', 'Cliente', 'Itens', 'Total', 'Custo', 'Lucro', 'Pagamento', 'Situação'], ...R.vendas.map(v => [fdata(v.data), nomeCliVenda(v), v.itens.map(i => { const a = by(db.artes, i.arteId); return i.q + 'x ' + (a ? a.nome : '?'); }).join(', '), M(totalVenda(v)), M(custoVenda(v)), M(totalVenda(v) - custoVenda(v)), nomeForma(v.forma) + (v.parcelas > 1 ? ' ' + v.parcelas + 'x' : ''), v.pago ? 'Recebido' : 'A receber'])] },
+    { nome: 'Estoque de artes', larg: [30, 12, 14, 16, 18], linhas: [['Arte', 'Estoque', 'Preço', 'Custo unitário', 'Valor em estoque (custo)'], ...R.artes.map(x => [x.a.nome, x.s, M(x.a.preco || 0), M(x.c), M(x.valor)])] },
     { nome: 'Estoque atual', larg: [30, 22, 16, 16, 16, 14], linhas: [['Produto', 'Categoria', 'Saldo', 'Custo médio/un. base', 'Valor em estoque', 'Situação'], ...R.prods.map(x => [x.p.nome, x.cat, fmtQtd(x.s, x.p.un), M(x.cu), M(x.valor), x.baixo ? 'Estoque baixo' : 'OK'])] },
     { nome: 'Compras', larg: [12, 28, 12, 14, 20, 10, 24], linhas: [['Data', 'Produto', 'Embalagens', 'Valor', 'Pagamento', 'Parcelas', 'Fornecedor'], ...R.compras.map(c => { const p = by(db.produtos, c.produtoId); return [fdata(c.data), p ? p.nome : '', c.nEmb, M(c.valor), nomeForma(c.forma), c.parcelas || 1, c.fornecedor || '']; })] },
     { nome: 'Movim. estoque', larg: [12, 28, 12, 16, 24, 26], linhas: [['Data', 'Produto', 'Tipo', 'Quantidade', 'Motivo', 'Festa'], ...R.movs.map(m => { const p = by(db.produtos, m.produtoId), ev = m.eventoId && by(db.eventos, m.eventoId); return [fdata(m.data), p ? p.nome : '', m.tipo === 'baixa' ? 'Baixa' : m.tipo === 'entrada' ? 'Entrada' : 'Ajuste', (m.qtd < 0 ? '-' : '+') + fmtQtd(Math.abs(m.qtd), p ? p.un : 'un'), m.motivo || '', ev ? nomeEv(ev) + ' ' + fdata(ev.data) : '']; })] }
@@ -189,6 +198,8 @@ function exportarPdf() {
   ${tb(['Cliente', 'Total em eventos', 'Eventos'], R.fatCli.slice(0, 10).map(x => [x.k, brl(x.v), x.n]))}
   <h2>Eventos do período</h2>${tb(['Data', 'Cliente', 'Status', 'Total', 'Lucro'], R.evs.map(e => [fdata(e.data), nomeEv(e), STATUS[e.status], brl(totalEvento(e)), brl(totalEvento(e) - custoEvento(e))]))}
   <h2>Lançamentos</h2>${tb(['Data', 'Tipo', 'Categoria', 'Descrição', 'Forma', 'Valor'], R.ls.map(l => [fdata(l.data), l.tipo === 'r' ? 'Receita' : 'Despesa', l.cat, l.desc || '', nomeForma(l.forma), brl(l.valor)]))}
+  <h2>Vendas de artes</h2>${tb(['Data', 'Cliente', 'Total', 'Lucro', 'Situação'], R.vendas.map(v => [fdata(v.data), nomeCliVenda(v), brl(totalVenda(v)), brl(totalVenda(v) - custoVenda(v)), v.pago ? 'Recebido' : 'A receber']))}
+  ${tb(['Arte', 'Estoque', 'Custo unit.', 'Preço'], R.artes.map(x => [x.a.nome, x.s + ' un', brl(x.c), brl(x.a.preco || 0)]))}
   <h2>Estoque de produtos (valor ${brl(R.valorEstoque)})</h2>${tb(['Produto', 'Categoria', 'Saldo', 'Valor em estoque', 'Situação'], R.prods.map(x => [x.p.nome, x.cat, fmtQtd(x.s, x.p.un), brl(x.valor), x.baixo ? 'Estoque baixo' : 'OK']))}
   <h2>Compras de produtos</h2>${tb(['Data', 'Produto', 'Valor', 'Pagamento', 'Parcelas'], R.compras.map(c => { const p = by(db.produtos, c.produtoId); return [fdata(c.data), p ? p.nome : '', brl(c.valor), nomeForma(c.forma), c.parcelas || 1]; }))}
   <h2>Movimentações de estoque</h2>${tb(['Data', 'Produto', 'Quantidade', 'Motivo'], R.movs.map(m => { const p = by(db.produtos, m.produtoId); return [fdata(m.data), p ? p.nome : '', (m.qtd < 0 ? '-' : '+') + fmtQtd(Math.abs(m.qtd), p ? p.un : 'un'), m.motivo || '']; }))}
