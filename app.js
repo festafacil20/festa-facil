@@ -103,8 +103,8 @@ function wa(tel, txt) {
 }
 
 /* ===== Roteador ===== */
-const rotas = { dashboard: () => viewDashboard(), agenda: () => viewAgenda(), clientes: () => viewClientes(), catalogo: () => viewCatalogo(), financeiro: () => viewFinanceiro(), estoque: () => viewEstoque(), config: () => viewConfig() };
-const titulos = { dashboard: 'Início', agenda: 'Agenda', clientes: 'Clientes', catalogo: 'Catálogo', financeiro: 'Financeiro', estoque: 'Estoque', config: 'Configurações' };
+const rotas = { dashboard: () => viewDashboard(), agenda: () => viewAgenda(), clientes: () => viewClientes(), catalogo: () => viewCatalogo(), financeiro: () => viewFinanceiro(), estoque: () => viewEstoque(), relatorios: () => viewRelatorios(), config: () => viewConfig() };
+const titulos = { dashboard: 'Início', agenda: 'Agenda', clientes: 'Clientes', catalogo: 'Catálogo', financeiro: 'Financeiro', estoque: 'Estoque', relatorios: 'Relatórios', config: 'Configurações' };
 let rota = 'dashboard';
 const st = { mes: new Date(), dia: hoje(), cat: '', busca: '', fmes: new Date(), et: 'produtos', pcat: '' };
 function ir(r) {
@@ -421,11 +421,12 @@ function viewFinanceiro() {
   const r = ls.filter(l => l.tipo === 'r').reduce((s, l) => s + l.valor, 0), d = ls.filter(l => l.tipo === 'd').reduce((s, l) => s + l.valor, 0);
   const porCat = {}; ls.forEach(l => { const k = (l.tipo === 'r' ? '+ ' : '− ') + l.cat; porCat[k] = (porCat[k] || 0) + l.valor; });
   const L = lucroMes(y, m);
-  app.innerHTML = `<div class="mes"><button id="fp">‹</button><b>${MESES[m]} ${y}</b><button id="fn">›</button></div>
+  app.innerHTML = `<button class="btn sec full" id="brel" style="margin:0 0 12px">📊 Relatórios, gráficos e exportação (Excel/PDF)</button><div class="mes"><button id="fp">‹</button><b>${MESES[m]} ${y}</b><button id="fn">›</button></div>
   <div class="grid3" style="margin-bottom:12px"><div class="kpi"><small>Receita</small><b class="pos">${brl(r)}</b></div><div class="kpi"><small>Despesa</small><b class="neg">${brl(d)}</b></div><div class="kpi"><small>Saldo</small><b class="${r - d >= 0 ? 'pos' : 'neg'}">${brl(r - d)}</b></div></div>
   <div class="card"><h3>Lucro dos eventos (${L.n})</h3><div class="row"><span>Faturamento previsto</span><b>${brl(L.v)}</b></div><div class="row"><span>Custo dos itens</span><b class="neg">${brl(L.c)}</b></div><div class="row"><span><b>Lucro</b></span><b class="${L.l >= 0 ? 'pos' : 'neg'}">${brl(L.l)}</b></div><div class="s" style="color:var(--mut)">Eventos confirmados/realizados do mês (sem orçamentos e cancelados)</div></div>
   ${Object.keys(porCat).length ? `<div class="card"><h3>Por categoria</h3>${Object.entries(porCat).map(([k, v]) => `<div class="row"><span>${esc(k)}</span><b>${brl(v)}</b></div>`).join('')}</div>` : ''}
   <div class="card"><h3>Lançamentos</h3>${ls.map(l => `<div class="row" data-l="${l.id}"><div><div class="t">${esc(l.desc || l.cat)}</div><div class="s">${fdata(l.data)} · ${esc(l.cat)}${l.forma ? ' · ' + esc(FORMAS_ALL[l.forma] || l.forma) : ''}</div></div><b class="${l.tipo === 'r' ? 'pos' : 'neg'}">${l.tipo === 'r' ? '+' : '−'}${brl(l.valor)}</b></div>`).join('') || '<div class="vazio">Sem lançamentos</div>'}</div>`;
+  $('#brel').onclick = () => ir('relatorios');
   $('#fp').onclick = () => { st.fmes = new Date(y, m - 1, 1); viewFinanceiro(); };
   $('#fn').onclick = () => { st.fmes = new Date(y, m + 1, 1); viewFinanceiro(); };
   app.querySelectorAll('[data-l]').forEach(el => el.onclick = () => formLanc(by(db.lancamentos, el.dataset.l)));
