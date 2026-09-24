@@ -1,6 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1';
+const VERSAO = '9'; // manter igual ao número em sw.js (festa-facil-v9)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -463,7 +464,13 @@ function viewConfig() {
   <button class="btn full" id="cfs">Salvar</button></div>
   <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam só neste aparelho. Faça backup com frequência.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
+  <div class="card"><h3>Sobre o app</h3><div class="row"><span>Versão</span><b>${VERSAO}</b></div><p class="s" style="color:var(--mut);margin:6px 0 0">Se alguma tela nova não aparecer, toque em atualizar. Seus dados não são apagados.</p><button class="btn sec full" id="atualizar">🔄 Atualizar o app</button></div>
   <div class="card"><h3>Zona de perigo</h3><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
+  $('#atualizar').onclick = async () => {
+    toast('Atualizando...');
+    try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
+    location.reload();
+  };
   $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Festa Fácil'; db.config.whats = $('#cfw').value.trim(); save(); toast('Salvo'); };
   $('#bx').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' })); a.download = `festa-facil-backup-${hoje()}.json`; a.click(); };
   $('#bi').onclick = () => $('#bf').click();
