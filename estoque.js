@@ -47,7 +47,39 @@ function editorComp(host, comp) {
   host.oninput = le;
   host.onclick = e => { const x = e.target.closest('[data-kx]'); if (x) { le(); comp.splice(+x.closest('.krow').dataset.i, 1); desenha(); } };
   desenha();
-  return { adicionar() { le(); comp.push({ produtoId: db.produtos[0].id, qtd: 0, u: null }); desenha(); }, le };
+  return {
+    adicionar(produtoId) { le(); if (!db.produtos.length) return; comp.push({ produtoId: produtoId || db.produtos[0].id, qtd: 0, u: null }); desenha(); },
+    refresh() { desenha(); },
+    le
+  };
+}
+// Chute de unidade a partir do nome, pra agilizar o cadastro rápido de um produto novo
+function chuteUnidade(nome) {
+  const n = nome.toLowerCase();
+  if (/tinta|cola|verniz|esmalte|l[íi]quid|água|agua|xarope|óleo|oleo/.test(n)) return 'ml';
+  if (/purpurina|gesso|p[óo] |farinha|areia|pigment|glitter/.test(n)) return 'g';
+  return 'un';
+}
+// Painel embutido para cadastrar um produto do estoque sem sair do formulário atual (kit, receita de arte...)
+function painelNovoProdutoHTML() {
+  return `<div id="qpBox" hidden class="qpbox">
+    <label style="margin-top:0">Nome do novo produto</label><input id="qpNome" placeholder="Ex.: Pincel, Saco plástico 15x25, Tinta verde">
+    <label>Medido em</label><select id="qpUn">${Object.entries(NOMES_UN).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select>
+    <button class="btn sm full" id="qpSave" type="button" style="margin-top:8px">Adicionar ao estoque</button>
+  </div>`;
+}
+function ligaPainelNovoProduto(box, onCriado) {
+  const nomeEl = box.querySelector('#qpNome'), unEl = box.querySelector('#qpUn');
+  let unTocado = false;
+  unEl.onchange = () => unTocado = true;
+  nomeEl.oninput = () => { if (!unTocado) unEl.value = chuteUnidade(nomeEl.value); };
+  box.querySelector('#qpSave').onclick = () => {
+    const nome = nomeEl.value.trim(); if (!nome) return toast('Informe o nome do produto');
+    const p = { id: uid(), nome, cat: '', un: unEl.value, emb: '', conteudo: 0, minimo: 0 };
+    db.produtos.push(p); save();
+    nomeEl.value = ''; unTocado = false; box.hidden = true;
+    toast('Produto adicionado ao estoque'); onCriado(p);
+  };
 }
 
 /* ---- tela ---- */
@@ -233,7 +265,6 @@ function detalheMov(m) {
 
 /* ---- kits ---- */
 function formKit(k) {
-  if (!db.produtos.length) { toast('Cadastre os produtos antes de criar um kit'); st.et = 'produtos'; return formProduto(); }
   const novo = !k; k = k || { id: uid(), nome: '', itens: [], vinculo: null };
   const comp = k.itens.map(c => ({ ...c }));
   const opcVinc = db.catalogo.flatMap(it => mod(it) === 'f' ? FAIXAS.map(f => [`${it.id}|${f}`, `${it.nome} · até ${f} crianças`]) : [[`${it.id}|`, it.nome]]);
@@ -241,7 +272,8 @@ function formKit(k) {
   sheet(novo ? 'Novo kit' : 'Kit', `
     <label>Nome do kit</label><input id="kn" value="${esc(k.nome)}" placeholder="Ex.: Kit oficina slime - 10 crianças">
     <label>O que vai no kit</label><div id="kcomp"></div>
-    <button class="btn sec sm" id="kadd" type="button" style="margin-top:8px">＋ Adicionar produto</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec sm" id="kadd" type="button">＋ Adicionar produto</button><button class="btn sec sm" id="knovoprod" type="button">＋ Novo produto no estoque</button></div>
+    ${painelNovoProdutoHTML()}
     <div class="s" id="kcusto" style="margin-top:10px;color:var(--mut)"></div>
     <label>Ligar a um item do catálogo (opcional)</label><select id="kv"><option value="">Não ligar</option>${opcVinc.map(([v, t]) => `<option value="${v}" ${v === vv ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
     <div class="s" style="color:var(--mut)">Ligado, o kit aparece na festa que tiver esse item e você dá baixa do estoque com um toque.</div>
@@ -250,7 +282,10 @@ function formKit(k) {
     const ed = editorComp($('#kcomp'), comp);
     const custo = () => { ed.le(); $('#kcusto').textContent = 'Custo estimado do kit: ' + brl(custoComp(comp)) + (quantosDa(comp) || comp.length ? ` · dá para ${quantosDa(comp)} kit(s) com o estoque atual` : ''); };
     b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
-    $('#kadd').onclick = () => { ed.adicionar(); custo(); };
+    const qpBox = $('#qpBox');
+    ligaPainelNovoProduto(qpBox, novo => { ed.adicionar(novo.id); custo(); });
+    $('#knovoprod').onclick = () => { qpBox.hidden = !qpBox.hidden; if (!qpBox.hidden) $('#qpNome').focus(); };
+    $('#kadd').onclick = () => { if (!db.produtos.length) { qpBox.hidden = false; $('#qpNome').focus(); return toast('Cadastre um produto primeiro'); } ed.adicionar(); custo(); };
     $('#ksave').onclick = () => {
       ed.le(); const n = $('#kn').value.trim(); if (!n) return toast('Informe o nome do kit');
       const itens = comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })); if (!itens.length) return toast('Adicione ao menos um produto com quantidade');

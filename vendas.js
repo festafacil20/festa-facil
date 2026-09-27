@@ -46,7 +46,9 @@ function formArte(a) {
     <label>Fotos (até 3)</label><div id="aimg" class="fotos"></div><input type="file" id="af" accept="image/*" multiple hidden><button class="btn sec sm" id="afb" type="button">📷 Adicionar fotos</button>
     <label>Preço de venda (R$)</label><input id="ap" inputmode="decimal" value="${a.preco || ''}">
     <label>Insumos usados em 1 unidade (receita) — opcional</label>
-    ${db.produtos.length ? '<div id="acomp"></div><button class="btn sec sm" id="aadd" type="button" style="margin-top:8px">＋ Adicionar insumo</button>' : '<div class="s" style="color:var(--mut)">Cadastre produtos em Estoque (ex.: gesso) para montar a receita.</div>'}
+    <div id="acomp"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec sm" id="aadd" type="button">＋ Adicionar insumo</button><button class="btn sec sm" id="anovoprod" type="button">＋ Novo produto no estoque</button></div>
+    ${painelNovoProdutoHTML()}
     <label>Outros custos por unidade (R$, opcional: molde, tinta, mão de obra...)</label><input id="ax" inputmode="decimal" value="${a.extra || ''}">
     <div class="s" id="acusto" style="margin-top:8px;color:var(--mut)"></div>
     <button class="btn full" id="asave">Salvar</button>
@@ -55,13 +57,16 @@ function formArte(a) {
     pv(); $('#aimg').onclick = e => { const r = e.target.closest('[data-rm]'); if (r) { imgs.splice(+r.dataset.rm, 1); pv(); } };
     $('#afb').onclick = () => $('#af').click();
     $('#af').onchange = async e => { for (const f of e.target.files) { if (imgs.length >= 3) break; await new Promise(r => lerImagem(f, d => { imgs.push(d); r(); })); } e.target.value = ''; pv(); };
-    const ed = db.produtos.length ? editorComp($('#acomp'), comp) : null;
-    const custo = () => { if (ed) ed.le(); const c = custoComp(comp) + num($('#ax').value); $('#acusto').textContent = c ? `Custo estimado por unidade: ${brl(c)}${num($('#ap').value) ? ' · lucro ≈ ' + brl(num($('#ap').value) - c) : ''}` : ''; };
+    const ed = editorComp($('#acomp'), comp);
+    const custo = () => { ed.le(); const c = custoComp(comp) + num($('#ax').value); $('#acusto').textContent = c ? `Custo estimado por unidade: ${brl(c)}${num($('#ap').value) ? ' · lucro ≈ ' + brl(num($('#ap').value) - c) : ''}` : ''; };
     b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
-    if (ed) $('#aadd').onclick = () => { ed.adicionar(); custo(); };
+    const qpBox = $('#qpBox');
+    ligaPainelNovoProduto(qpBox, novo => { ed.adicionar(novo.id); custo(); });
+    $('#anovoprod').onclick = () => { qpBox.hidden = !qpBox.hidden; if (!qpBox.hidden) $('#qpNome').focus(); };
+    $('#aadd').onclick = () => { if (!db.produtos.length) { qpBox.hidden = false; $('#qpNome').focus(); return toast('Cadastre um produto primeiro'); } ed.adicionar(); custo(); };
     $('#asave').onclick = () => {
       const n = $('#an').value.trim(); if (!n) return toast('Informe o nome');
-      if (ed) ed.le(); const bak = JSON.stringify(a);
+      ed.le(); const bak = JSON.stringify(a);
       Object.assign(a, { nome: n, desc: $('#ad').value.trim(), imgs: [...imgs], preco: num($('#ap').value), extra: num($('#ax').value), receita: comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) });
       if (novo) db.artes.push(a);
       try { save(); } catch { if (novo) db.artes.pop(); else Object.assign(a, JSON.parse(bak)); return toast('Sem espaço: use menos fotos ou faça backup'); }
