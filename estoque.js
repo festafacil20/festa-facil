@@ -60,6 +60,14 @@ function chuteUnidade(nome) {
   if (/purpurina|gesso|p[óo] |farinha|areia|pigment|glitter/.test(n)) return 'g';
   return 'un';
 }
+// Tenta achar "250 ml", "5 kg" etc. no nome do produto, pra pré-preencher o conteúdo da embalagem na importação
+function chuteConteudo(nome, un) {
+  if (un === 'un') return 0;
+  const re = un === 'ml' ? /(\d+[.,]?\d*)\s*(ml|l)\b/i : /(\d+[.,]?\d*)\s*(g|kg)\b/i;
+  const m = nome.match(re); if (!m) return 0;
+  let v = parseFloat(m[1].replace(',', '.')); if (/^(l|kg)$/i.test(m[2])) v *= 1000;
+  return v;
+}
 // Painel embutido para cadastrar um produto do estoque sem sair do formulário atual (kit, receita de arte...)
 function painelNovoProdutoHTML() {
   return `<div id="qpBox" hidden class="qpbox">
@@ -102,7 +110,8 @@ function viewEstoque() {
   } else if (st.et === 'compras') {
     const lista = [...db.compras].sort((a, b) => b.data.localeCompare(a.data));
     corpo = `<div class="card">${lista.map(c => { const p = by(db.produtos, c.produtoId); return `<div class="row" data-c="${c.id}"><div><div class="t">${esc(p ? p.nome : '(produto excluído)')}</div><div class="s">${fdata(c.data)} · ${rn(c.nEmb)} emb. · ${esc(FORMAS_ALL[c.forma] || 'pagamento n/i')}${c.parcelas > 1 ? ' · ' + c.parcelas + 'x' : ''}${c.fornecedor ? ' · ' + esc(c.fornecedor) : ''}</div></div><b>${brl(c.valor)}</b></div>`; }).join('') || '<div class="vazio">Nenhuma compra lançada</div>'}</div>
-    <button class="btn full" id="bcompra">🛒 Lançar compra</button>`;
+    <button class="btn full" id="bcompra">🛒 Lançar compra</button>
+    <button class="btn sec full" id="bimport">📥 Importar compras (colar de planilha)</button>`;
   } else {
     const lista = [...db.movs].sort((a, b) => (b.data + b.id).localeCompare(a.data + a.id)).slice(0, 100);
     corpo = `<div class="card">${lista.map(m => {
@@ -124,6 +133,112 @@ function viewEstoque() {
   const bb = $('#bbaixa'); if (bb) bb.onclick = () => formBaixa();
   const bk = $('#bkit'); if (bk) bk.onclick = () => formKit();
   const bbk = $('#bbkit'); if (bbk) bbk.onclick = () => formBaixaKit();
+  const bi = $('#bimport'); if (bi) bi.onclick = () => formImportarCompras();
+}
+
+/* ---- importar compras coladas de uma planilha (Google Sheets/Excel) ---- */
+const CAMPOS_IMPORT = [
+  ['data', ['data da compra', 'data compra', 'data']], ['fornecedor', ['fornecedor']],
+  ['produto', ['produto/material', 'produto / material', 'produto', 'material']], ['categoria', ['categoria']],
+  ['qtd', ['qtd', 'quantidade']], ['vunit', ['valor unitario', 'valor unit', 'vlr unitario']],
+  ['vtotal', ['valor total', 'vlr total', 'total']], ['forma', ['forma de pagamento', 'forma pagamento', 'pagamento']],
+  ['venc', ['data de vencimento', 'vencimento']],
+];
+const FORMA_ALIAS = [[/pix/i, 'pix'], [/dinheiro|esp[ée]cie/i, 'dinheiro'], [/d[ée]bito/i, 'debito'], [/cr[ée]dito/i, 'credito'], [/boleto/i, 'boleto']];
+const normTxt = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+const parseNumBR = s => { if (s == null) return 0; s = String(s).replace(/[R$\s]/gi, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); const n = parseFloat(s); return isNaN(n) ? 0 : n; };
+function parseDataBR(s) {
+  s = String(s || '').trim(); let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) { let [, d, mo, y] = m; if (y.length === 2) y = '20' + y; return `${y}-${pad(+mo)}-${pad(+d)}`; }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? s.slice(0, 10) : '';
+}
+const mapForma = s => { s = String(s || ''); for (const [re, k] of FORMA_ALIAS) if (re.test(s)) return k; return 'outro'; };
+function splitLinha(l) { return l.includes('\t') ? l.split('\t') : l.split(';').length > 1 ? l.split(';') : l.split(','); }
+function parseImportacao(texto) {
+  const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!linhas.length) return [];
+  let cel0 = splitLinha(linhas[0]).map(normTxt), idx = {}, comCabecalho = false;
+  CAMPOS_IMPORT.forEach(([campo, alvos]) => { const i = cel0.findIndex(h => alvos.some(a => h.includes(a))); if (i >= 0) { idx[campo] = i; comCabecalho = true; } });
+  const corpo = comCabecalho ? linhas.slice(1) : linhas;
+  if (!comCabecalho) idx = { data: 0, fornecedor: 1, produto: 2, categoria: 3, qtd: 4, vunit: 5, vtotal: 6, forma: 7, venc: 8 };
+  return corpo.map(l => {
+    const c = splitLinha(l), g = campo => idx[campo] != null ? (c[idx[campo]] || '').trim() : '';
+    const produto = g('produto'); if (!produto) return null;
+    const qtd = Math.max(0, parseNumBR(g('qtd')) || 1);
+    const vunit = parseNumBR(g('vunit')), vtotalCel = parseNumBR(g('vtotal'));
+    const vtotal = vtotalCel || vunit * qtd || vunit;
+    const data = parseDataBR(g('data')) || hoje();
+    return { produtoNome: produto, categoriaNome: g('categoria'), qtd, vtotal, forma: mapForma(g('forma')), data, venc: parseDataBR(g('venc')) || data, fornecedor: g('fornecedor') };
+  }).filter(Boolean);
+}
+function formImportarCompras() {
+  sheet('Importar compras', `
+    <p class="s" style="color:var(--mut);margin-top:0">Copie as linhas da sua planilha (incluindo o cabeçalho, se tiver) e cole aqui. Colunas reconhecidas: Data da compra, Fornecedor, Produto/Material, Categoria, Qtd, Valor unitário, Valor total, Forma de pagamento, Data de vencimento.</p>
+    <textarea id="imTxt" rows="8" placeholder="Cole aqui as linhas copiadas da planilha (Google Sheets/Excel)"></textarea>
+    <button class="btn full" id="imAnalisar" type="button">Analisar</button>`, () => {
+    $('#imAnalisar').onclick = () => {
+      const linhas = parseImportacao($('#imTxt').value);
+      if (!linhas.length) return toast('Não consegui reconhecer nenhuma linha. Confira se colou as colunas certas.');
+      mostraPreviaImportacao(linhas);
+    };
+  });
+}
+function mostraPreviaImportacao(linhas) {
+  const total = linhas.reduce((s, l) => s + l.vtotal, 0);
+  sheet('Conferir antes de importar', `
+    <p class="s" style="color:var(--mut);margin-top:0">${linhas.length} linha(s) reconhecida(s), total ${brl(total)}. Produtos e categorias novos são criados automaticamente. Confira a unidade de cada produto novo antes de confirmar — dá para corrigir depois em Estoque.</p>
+    <div id="imLinhas">${linhas.map((l, i) => {
+      const pExiste = db.produtos.find(p => normTxt(p.nome) === normTxt(l.produtoNome));
+      const un = pExiste ? pExiste.un : chuteUnidade(l.produtoNome);
+      const cont = pExiste ? pExiste.conteudo : chuteConteudo(l.produtoNome, un);
+      const contHTML = pExiste
+        ? (pExiste.conteudo ? `<div class="s" style="color:var(--mut)">Cada unidade comprada = ${fmtQtd(pExiste.conteudo, pExiste.un)} (já cadastrado)</div>` : '')
+        : (un === 'un' ? '' : `<label style="margin:6px 0 4px">Cada unidade comprada tem quanto de ${esc(l.produtoNome)}?</label><div class="par" data-contWrap><input data-cont value="${cont ? nStr(cont / UNS[un].k) : ''}" inputmode="decimal" placeholder="Ex.: 250"><select data-contu>${optsUn(un, un)}</select></div><div class="s" style="color:var(--mut)">Ex.: se comprou um pote de 250 ml, informe 250 ml aqui — não a quantidade de potes.</div>`);
+      return `<div class="krow" data-i="${i}"><div class="chk" style="margin:0 0 6px"><input type="checkbox" data-inc checked><label style="margin:0;font-weight:600">${esc(l.produtoNome)}</label>${pExiste ? '' : ' <span class="badge">novo produto</span>'}</div>
+      <div class="par"><input data-qtd value="${nStr(l.qtd)}" inputmode="decimal" placeholder="Qtd (embalagens/unidades compradas)"><select data-un ${pExiste ? 'disabled' : ''}>${Object.keys(UNS).map(u => `<option value="${u}" ${u === un ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
+      ${contHTML}
+      <div class="par" style="margin-top:6px"><input data-vtotal value="${nStr(l.vtotal)}" inputmode="decimal" placeholder="Valor total"><select data-forma>${['pix', 'dinheiro', 'debito', 'credito', 'boleto', 'outro'].map(k => `<option value="${k}" ${k === l.forma ? 'selected' : ''}>${FORMAS_ALL[k]}</option>`).join('')}</select></div>
+      <div class="par" style="margin-top:6px"><input type="date" data-data value="${l.data}" title="Data da compra"><input type="date" data-venc value="${l.venc}" title="Vencimento/despesa"></div>
+      <div class="s" style="color:var(--mut);margin-top:4px">${esc(l.categoriaNome || 'sem categoria')}${l.fornecedor ? ' · ' + esc(l.fornecedor) : ''}</div></div>`;
+    }).join('')}</div>
+    <button class="btn full" id="imConfirma">Importar as marcadas</button>
+    <button class="btn sec full" id="imVoltar">← Colar outra vez</button>`, b => {
+    $('#imVoltar').onclick = () => formImportarCompras();
+    // recalcula o campo de conteúdo se a pessoa trocar a unidade de um produto novo
+    b.addEventListener('change', e => {
+      if (!e.target.matches('[data-un]')) return;
+      const row = e.target.closest('.krow'), wrap = row.querySelector('[data-contWrap]'); if (!wrap) return;
+      const un = e.target.value; wrap.querySelector('[data-contu]').innerHTML = optsUn(un, un);
+    });
+    $('#imConfirma').onclick = () => {
+      let n = 0, pendentes = [];
+      b.querySelectorAll('.krow').forEach(row => {
+        if (!row.querySelector('[data-inc]').checked) return;
+        const l = linhas[+row.dataset.i], qtd = num(row.querySelector('[data-qtd]').value), vtotal = num(row.querySelector('[data-vtotal]').value);
+        if (qtd <= 0 || vtotal <= 0) return;
+        let p = db.produtos.find(x => normTxt(x.nome) === normTxt(l.produtoNome));
+        if (!p) {
+          const un = row.querySelector('[data-un]').value;
+          let conteudo = 0;
+          if (un !== 'un') { const cw = row.querySelector('[data-contWrap]'); conteudo = cw ? num(cw.querySelector('[data-cont]').value) * UNS[cw.querySelector('[data-contu]').value].k : 0; if (conteudo <= 0) { pendentes.push(l.produtoNome); return; } }
+          let cat = l.categoriaNome ? db.pcats.find(c => normTxt(c.nome) === normTxt(l.categoriaNome)) : null;
+          if (!cat && l.categoriaNome) { cat = { id: uid(), nome: l.categoriaNome.trim() }; db.pcats.push(cat); }
+          p = { id: uid(), nome: l.produtoNome.trim(), cat: cat ? cat.id : '', un, emb: '', conteudo, minimo: 0 };
+          db.produtos.push(p);
+        }
+        const data = row.querySelector('[data-data]').value || hoje(), venc = row.querySelector('[data-venc]').value || data, forma = row.querySelector('[data-forma]').value;
+        const qtdBase = qtd * (p.conteudo || 1);
+        const c = { id: uid(), produtoId: p.id, data, nEmb: qtd, valor: vtotal, forma, parcelas: 1, primeira: venc, fornecedor: l.fornecedor, qtdBase };
+        db.compras.push(c);
+        db.movs.push({ id: uid(), produtoId: p.id, data, tipo: 'entrada', qtd: qtdBase, motivo: 'Compra (importada)', compraId: c.id });
+        db.lancamentos.push({ id: uid(), tipo: 'd', valor: vtotal, data: venc, cat: 'Material', desc: `Compra: ${p.nome}`, forma, compraId: c.id, origem: 'compra' });
+        n++; row.querySelector('[data-inc]').checked = false; row.style.opacity = .5;
+      });
+      if (n) save();
+      if (pendentes.length) { toast((n ? n + ' importada(s). Falta' : 'Falta') + ' informar "quanto tem cada unidade" em: ' + pendentes.join(', ')); return; }
+      fechar(); st.et = 'compras'; render(); toast(`${n} compra(s) importada(s)`);
+    };
+  });
 }
 
 function formPcat(c) {
