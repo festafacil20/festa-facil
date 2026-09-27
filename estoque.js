@@ -135,18 +135,20 @@ function formPcat(c) {
   });
 }
 
-function formProduto(p) {
+function formProduto(p, opts) {
   const novo = !p; p = p || { id: uid(), nome: '', cat: st.pcat || '', un: 'ml', emb: '', conteudo: 0, minimo: 0 };
+  opts = opts || {};
   const opcoesUn = (novo ? Object.keys(UNS) : UNS_DA_BASE[baseDe(p.un)]).map(u => `<option value="${u}" ${u === p.un ? 'selected' : ''}>${NOMES_UN[u]}</option>`).join('');
-  sheet(novo ? 'Novo produto' : 'Produto', `
+  sheet(novo ? (opts.entao ? 'Novo produto (1/2)' : 'Novo produto') : 'Produto', `
+    ${opts.entao === 'compra' ? '<div class="s" style="color:var(--mut);margin-bottom:6px">Primeiro conte o que é o produto. Na próxima tela você informa quanto pagou, a forma de pagamento e o parcelamento.</div>' : ''}
     <label>Nome</label><input id="pn" value="${esc(p.nome)}" placeholder="Ex.: Cola branca">
     <label>Categoria</label><select id="pc"><option value="">Sem categoria</option>${db.pcats.map(c => `<option value="${c.id}" ${c.id === p.cat ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
     <label>Unidade de medida</label><select id="pu">${opcoesUn}</select>
     <label>Embalagem que eu compro (nome)</label><input id="pe" value="${esc(p.emb)}" placeholder="Ex.: galão, pacote, caixa">
     <label>Quanto vem em cada embalagem</label><div class="par"><input id="pcont" inputmode="decimal"><select id="pcu"></select></div>
     <label>Avisar quando o estoque chegar em</label><div class="par"><input id="pmin" inputmode="decimal"><select id="pmu"></select></div>
-    ${novo ? '<label>Já tenho em estoque (saldo inicial)</label><div class="par"><input id="pini" inputmode="decimal" placeholder="0"><select id="piu"></select></div>' : ''}
-    <button class="btn full" id="psave">Salvar</button>
+    ${novo && !opts.entao ? '<label>Já tenho em estoque (saldo inicial)</label><div class="par"><input id="pini" inputmode="decimal" placeholder="0"><select id="piu"></select></div><div class="s" style="color:var(--mut)">Isso não registra quanto você pagou. Para lançar o valor, a forma de pagamento e parcelar, use "Lançar compra" depois de salvar.</div>' : ''}
+    <button class="btn full" id="psave">${opts.entao === 'compra' ? 'Continuar para lançar a compra' : opts.entao === 'baixa' ? 'Continuar para dar baixa' : 'Salvar'}</button>
     ${novo ? '' : '<button class="btn sec full" id="pcompra">🛒 Lançar compra</button><button class="btn sec full" id="pbaixa">➖ Dar baixa</button><button class="btn del full" id="pdel">Excluir produto</button>'}`, () => {
     const un = () => $('#pu').value;
     const monta = () => {
@@ -159,8 +161,11 @@ function formProduto(p) {
     $('#psave').onclick = () => {
       const n = $('#pn').value.trim(); if (!n) return toast('Informe o nome');
       Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu') });
-      if (novo) { db.produtos.push(p); const ini = base('#pini', '#piu'); if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
-      save(); fechar(); render(); toast('Produto salvo');
+      if (novo) { db.produtos.push(p); const ini = $('#pini') ? base('#pini', '#piu') : 0; if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
+      save();
+      if (novo && opts.entao === 'compra') { fechar(); return formCompra(p.id); }
+      if (novo && opts.entao === 'baixa') { fechar(); return formBaixa(p.id); }
+      fechar(); render(); toast('Produto salvo');
     };
     if (!novo) {
       $('#pcompra').onclick = () => formCompra(p.id); $('#pbaixa').onclick = () => formBaixa(p.id);
@@ -170,7 +175,7 @@ function formProduto(p) {
 }
 
 function formCompra(prodId) {
-  if (!db.produtos.length) { toast('Cadastre um produto primeiro'); return formProduto(); }
+  if (!db.produtos.length) { toast('Cadastre o produto primeiro'); return formProduto(null, { entao: 'compra' }); }
   const p0 = by(db.produtos, prodId) || db.produtos[0];
   sheet('Lançar compra', `
     <label>Produto</label><select id="cp">${db.produtos.map(p => `<option value="${p.id}" ${p.id === p0.id ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select>
@@ -216,7 +221,7 @@ function detalheCompra(c) {
 }
 
 function formBaixa(prodId) {
-  if (!db.produtos.length) { toast('Cadastre um produto primeiro'); return formProduto(); }
+  if (!db.produtos.length) { toast('Cadastre o produto primeiro'); return formProduto(null, { entao: 'baixa' }); }
   const p0 = by(db.produtos, prodId) || db.produtos[0];
   const evs = [...db.eventos].filter(e => e.status !== 'cancelado').sort((a, b) => b.data.localeCompare(a.data)).slice(0, 40);
   sheet('Dar baixa no estoque', `
