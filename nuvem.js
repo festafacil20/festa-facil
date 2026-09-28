@@ -178,6 +178,7 @@ function formPedido(p) {
     <h3 style="margin:14px 0 4px">Produtos</h3>${d.itens.map(i => { const a = by(db.artes, i.id); return `<div class="row"><span>${i.q}× ${esc(i.n)}${a ? ` <small style="color:var(--mut)">(estoque ${saldoArte(a)})</small>` : ' <small style="color:var(--bad)">(excluído)</small>'}</span><b>${brl(i.v * i.q)}</b></div>`; }).join('')}
     ${d.taxa ? `<div class="row"><span>Taxa de entrega</span><b>${brl(d.taxa)}</b></div>` : ''}
     <div class="total">Total: ${brl(d.total)}</div>
+    ${d.mpLink ? `<div class="s" style="color:var(--mut);margin-top:6px">💳 Link de pagamento (Mercado Pago) gerado para o cliente.</div><button class="btn sec full" id="pmp">📋 Copiar link de pagamento</button>` : ''}
     <button class="btn full" id="pconv">🛍️ Registrar venda</button>` : `
     ${d.end ? `<div class="row"><span>Endereço</span><b>${esc(d.end)}</b></div>` : ''}
     <div class="row"><span>Data da festa</span><b>${d.data ? fdata(d.data) : 'ainda não definida'}</b></div>
@@ -192,6 +193,7 @@ function formPedido(p) {
     ${p.status === 'arquivado' ? '<button class="btn sec full" id="pdes">Desarquivar</button>' : '<button class="btn sec full" id="parq">Arquivar</button>'}
     <button class="btn del full" id="pdel">Excluir pedido</button>`, () => {
     $('#pwa').onclick = () => window.open(wa(p.tel, prod ? `Olá ${p.nome}! Recebemos seu pedido 🛍️` : `Olá ${p.nome}! Recebemos seu pedido para a festa${d.data ? ' do dia ' + fdata(d.data) : ''} 🎉`), '_blank');
+    if ($('#pmp')) $('#pmp').onclick = async () => { try { await navigator.clipboard.writeText(d.mpLink); toast('Link copiado'); } catch { prompt('Copie o link:', d.mpLink); } };
     $('#pconv').onclick = () => {
       const obs = `Pedido ${prod ? 'pela loja' : 'pelo cardápio'} em ${new Date(p.criado_em).toLocaleDateString('pt-BR')}`;
       if (prod) {

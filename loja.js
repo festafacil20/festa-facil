@@ -17,7 +17,7 @@ const total = () => subtotal() + taxa();
 function barra(txtBotao) {
   const n = itens().reduce((s, i) => s + i.q, 0);
   $('.bar').hidden = false; $('#tot').textContent = `${n} item(ns) · Total: ${brl(total())}${taxa() ? ' (com entrega)' : ''}`;
-  $('#seguir').textContent = txtBotao;
+  $('#seguir').textContent = txtBotao; $('#seguir').disabled = false;
 }
 
 function vitrine() {
@@ -93,9 +93,21 @@ async function enviar() {
   const b = $('#seguir'); b.disabled = true; b.textContent = 'Enviando...';
   const ent = S.receber === 'entrega';
   const dadosPed = { tipo: 'produtos', receber: S.receber, cidade: ent ? S.cidade : '', end: ent ? S.end : '', forma: S.forma, obs: S.obs.slice(0, 500), subtotal: subtotal(), taxa: taxa(), total: total(), itens: itens().map(i => ({ id: i.x.id, n: i.x.n, v: i.x.v, q: i.q })) };
+  let mpLink = '', gravado = false;
+  // Cartão: a nuvem grava o pedido e cria o link do Mercado Pago com o valor conferido
+  if (S.forma === 'credito' || S.forma === 'debito') {
+    try {
+      const r = await fetch(SUPA_URL + '/functions/v1/pagamento-cartao', { method: 'POST', headers: H, body: JSON.stringify({ nome: S.nome, tel: S.tel, forma: S.forma, receber: S.receber, cidade: dadosPed.cidade, end: dadosPed.end, obs: dadosPed.obs, itens: dadosPed.itens.map(i => ({ id: i.id, q: i.q })) }) });
+      const j = await r.json().catch(() => ({}));
+      if (j.pedidoId) gravado = true;
+      if (r.ok && j.link) mpLink = j.link;
+    } catch {}
+  }
   try {
-    const r = await fetch(SUPA_URL + '/rest/v1/pedidos', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify({ nome: S.nome.slice(0, 120), tel: S.tel.slice(0, 30), dados: dadosPed }) });
-    if (!r.ok) throw 0;
+    if (!gravado) {
+      const r = await fetch(SUPA_URL + '/rest/v1/pedidos', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify({ nome: S.nome.slice(0, 120), tel: S.tel.slice(0, 30), dados: dadosPed }) });
+      if (!r.ok) throw 0;
+    }
   } catch {
     b.disabled = false; b.textContent = 'Enviar pedido';
     if (d.w && confirm('Não foi possível enviar agora. Enviar pelo WhatsApp?')) location.href = linkWhats();
@@ -112,6 +124,11 @@ async function enviar() {
     <div class="s" style="margin:6px 0 4px">Pix Copia e Cola:</div><div class="pixcod" id="pixcod">${esc(pix)}</div>
     <button class="btn full" id="pixcp">📋 Copiar código Pix</button>
     <div class="s" style="color:var(--mut);margin-top:6px">No app do seu banco, escolha <b>Pix › Copia e Cola</b> e cole o código. Depois envie o pedido abaixo.</div></div>` : ''}
+  ${mpLink ? `<div class="card"><h3>💳 Pague com cartão</h3>
+    <div class="s" style="color:var(--mut)">Pagamento seguro pelo Mercado Pago, no crédito (com parcelamento) ou no débito. Valor: <b>${brl(total())}</b></div>
+    <a class="btn full" href="${esc(mpLink)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box">💳 Pagar ${brl(total())} com cartão</a>
+    <div class="s" style="color:var(--mut);margin-top:6px">Abre em outra aba. Depois de pagar, volte aqui e envie o pedido abaixo.</div></div>`
+  : (S.forma === 'credito' || S.forma === 'debito') ? '<div class="aviso">Não conseguimos gerar o link do cartão agora. Envie o pedido abaixo que a loja te manda o link de pagamento pelo WhatsApp.</div>' : ''}
   ${d.w ? `<button class="btn wa full" id="zap" style="font-size:1.05rem;padding:14px">📲 ENVIAR PEDIDO PARA LOJA</button>
   <div class="s" style="color:var(--mut);text-align:center;margin-top:6px">Abre o WhatsApp da loja com o seu pedido pronto. É só tocar em enviar.</div>` : ''}
   <button class="btn sec full" id="outro">Fazer outro pedido</button>`;
@@ -134,4 +151,8 @@ fetch(SUPA_URL + '/rest/v1/vitrine?select=data&id=eq.1', { headers: H }).then(r 
   if (!d || !Array.isArray(d.p)) { $('#lista').innerHTML = '<div class="card vazio">O catálogo ainda não foi publicado. Volte daqui a pouco!</div>'; return; }
   if (d.n) { $('#tt').textContent = d.n; document.title = 'Produtos - ' + d.n; }
   vitrine();
+  // Volta do Mercado Pago (back_urls da função pagamento-cartao)
+  const mp = new URLSearchParams(location.search).get('mp');
+  const aviso = { ok: ['', '✅ Pagamento aprovado! Obrigado pela compra. Se ainda não enviou o pedido pelo WhatsApp, fale com a gente.'], pendente: ['', '⏳ Pagamento em análise pelo Mercado Pago. Avisamos assim que for aprovado.'], erro: ['bad', 'O pagamento não foi concluído. Tente de novo ou escolha outra forma de pagamento.'] }[mp];
+  if (aviso) $('#lista').insertAdjacentHTML('afterbegin', `<div class="aviso ${aviso[0]}">${aviso[1]}</div>`);
 }).catch(() => { $('#lista').innerHTML = '<div class="card vazio">Não foi possível carregar os produtos. Verifique a internet e tente de novo.</div>'; });
