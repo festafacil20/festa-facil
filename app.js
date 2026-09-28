@@ -1,11 +1,11 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
-const KEY = 'festafacil.v1';
-const VERSAO = '13'; // manter igual ao número em sw.js (festa-facil-v13)
+const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
+const VERSAO = '14'; // manter igual ao número em sw.js (marizekids-v14)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
-const vazio = () => ({ clientes: [], eventos: [], lancamentos: [], categorias: CATS_PADRAO(), catalogo: [], pcats: [], produtos: [], compras: [], movs: [], kits: [], artes: [], pmovs: [], vendas: [], config: { nome: 'Festa Fácil', whats: '' } });
+const vazio = () => ({ clientes: [], eventos: [], lancamentos: [], categorias: CATS_PADRAO(), catalogo: [], pcats: [], produtos: [], compras: [], movs: [], kits: [], artes: [], pmovs: [], vendas: [], config: { nome: 'Marize Kids', whats: '' } });
 let db;
 try { db = Object.assign(vazio(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { db = vazio(); }
 // Traz dados de versões anteriores (brinquedos/oficinas separados) para o catálogo único
@@ -15,6 +15,7 @@ function migrar() {
   (db.brinquedos || []).forEach(x => db.catalogo.push({ id: x.id, cat: 'c_brinq', nome: x.nome, desc: x.desc || '', imgs: x.img ? [x.img] : [], valor: x.valor || 0, estoque: x.estoque || 1 }));
   (db.oficinas || []).forEach(x => db.catalogo.push({ id: x.id, cat: 'c_ofic', nome: x.nome, desc: x.desc || '', imgs: x.img ? [x.img] : [], faixas: x.faixas || fv(x.valor) }));
   delete db.brinquedos; delete db.oficinas;
+  if (db.config.nome === 'Festa Fácil') db.config.nome = 'Marize Kids'; // nome antigo da empresa
   db.catalogo.forEach(x => { if (x.img) { x.imgs = [x.img]; delete x.img; } if (!x.imgs) x.imgs = []; });
   db.eventos.forEach(e => (e.itens || []).forEach(i => { if (i.t === 'o' && !i.fx) i.fx = '10'; delete i.t; }));
 }
@@ -109,7 +110,7 @@ const titulos = { dashboard: 'Início', agenda: 'Agenda', clientes: 'Clientes', 
 let rota = 'dashboard';
 const st = { mes: new Date(), dia: hoje(), cat: '', busca: '', fmes: new Date(), et: 'produtos', pcat: '' };
 function ir(r) {
-  rota = r; $('#titulo').textContent = r === 'dashboard' ? (db.config.nome || 'Festa Fácil') : titulos[r];
+  rota = r; $('#titulo').textContent = r === 'dashboard' ? (db.config.nome || 'Marize Kids') : titulos[r];
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.r === r));
   $('#btnAdd').hidden = !['agenda', 'clientes', 'catalogo', 'financeiro', 'estoque', 'vendas'].includes(r);
   render();
@@ -487,8 +488,8 @@ function viewConfig() {
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
     location.reload();
   };
-  $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Festa Fácil'; db.config.whats = $('#cfw').value.trim(); save(); toast('Salvo'); };
-  $('#bx').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' })); a.download = `festa-facil-backup-${hoje()}.json`; a.click(); };
+  $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Marize Kids'; db.config.whats = $('#cfw').value.trim(); save(); toast('Salvo'); };
+  $('#bx').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' })); a.download = `marizekids-backup-${hoje()}.json`; a.click(); };
   $('#bi').onclick = () => $('#bf').click();
   $('#bf').onchange = async e => {
     try { const j = JSON.parse(await e.target.files[0].text()); if (!Array.isArray(j.eventos) || !j.config) throw 0; if (!confirm('Substituir todos os dados atuais pelo backup?')) return; db = Object.assign(vazio(), j); migrar(); save(); toast('Backup importado'); ir('dashboard'); } catch { toast('Arquivo inválido'); }

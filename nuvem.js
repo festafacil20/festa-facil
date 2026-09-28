@@ -96,7 +96,7 @@ async function publicarVitrine() {
 /* Login */
 function telaLogin(erro) {
   logado = false; statusNuvem();
-  $('#nav').hidden = true; $('#btnCfg').hidden = true; $('#btnAdd').hidden = true; $('#titulo').textContent = 'Festa Fácil';
+  $('#nav').hidden = true; $('#btnCfg').hidden = true; $('#btnAdd').hidden = true; $('#titulo').textContent = 'Marize Kids';
   app.innerHTML = `<div class="card hero"><h2>🎈 Gestão</h2><p>Entre com o seu e-mail e senha para acessar.</p></div>
   <form class="card" id="flogin"><label style="margin-top:0">E-mail</label><input id="le" type="email" autocomplete="username" required>
   <label>Senha</label><input id="ls" type="password" autocomplete="current-password" required>

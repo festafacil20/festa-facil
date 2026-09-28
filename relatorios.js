@@ -168,7 +168,7 @@ function planilhasRel(R) {
 }
 function baixarArquivo(blob, nome) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click(); a.remove(); }
 function exportarExcel() {
-  try { const R = relDados(); baixarArquivo(xlsx(planilhasRel(R)), `festa-facil-relatorio-${R.de}-a-${R.ate}.xlsx`); toast('Excel gerado'); }
+  try { const R = relDados(); baixarArquivo(xlsx(planilhasRel(R)), `marizekids-relatorio-${R.de}-a-${R.ate}.xlsx`); toast('Excel gerado'); }
   catch (e) { toast('Não foi possível gerar o Excel'); }
 }
 
