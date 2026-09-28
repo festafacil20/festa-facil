@@ -1,11 +1,11 @@
 'use strict';
 /* ===== Estoque de produtos (insumos) e kits ===== */
 // p.un = unidade de medida escolhida (ml, L, g, kg, un). O saldo é guardado na unidade base (ml, g, un).
-const UNS = { ml: { base: 'ml', k: 1 }, L: { base: 'ml', k: 1000 }, g: { base: 'g', k: 1 }, kg: { base: 'g', k: 1000 }, un: { base: 'un', k: 1 } };
-const UNS_DA_BASE = { ml: ['ml', 'L'], g: ['g', 'kg'], un: ['un'] };
-const NOMES_UN = { ml: 'Mililitros (ml)', L: 'Litros (L)', g: 'Gramas (g)', kg: 'Quilos (kg)', un: 'Unidade (un)' };
+const UNS = { ml: { base: 'ml', k: 1 }, L: { base: 'ml', k: 1000 }, g: { base: 'g', k: 1 }, kg: { base: 'g', k: 1000 }, cm: { base: 'cm', k: 1 }, m: { base: 'cm', k: 100 }, un: { base: 'un', k: 1 } };
+const UNS_DA_BASE = { ml: ['ml', 'L'], g: ['g', 'kg'], cm: ['cm', 'm'], un: ['un'] };
+const NOMES_UN = { ml: 'Mililitros (ml)', L: 'Litros (L)', g: 'Gramas (g)', kg: 'Quilos (kg)', cm: 'Centímetros (cm)', m: 'Metros (m)', un: 'Unidade (un)' };
 const baseDe = u => (UNS[u] || UNS.un).base;
-const optsUn = (base, sel) => UNS_DA_BASE[base].map(u => `<option ${u === sel ? 'selected' : ''}>${u}</option>`).join('');
+const optsUn = (base, sel) => UNS_DA_BASE[baseDe(base)].map(u => `<option ${u === sel ? 'selected' : ''}>${u}</option>`).join('');
 const rn = n => (Math.round(n * 100) / 100).toLocaleString('pt-BR');
 const nStr = n => String(+n.toFixed(3));
 function fmtQtd(q, un) { const u = UNS[un] || UNS.un; return rn(q / u.k) + ' ' + (UNS[un] ? un : 'un'); }
@@ -58,14 +58,15 @@ function chuteUnidade(nome) {
   const n = nome.toLowerCase();
   if (/tinta|cola|verniz|esmalte|l[íi]quid|água|agua|xarope|óleo|oleo/.test(n)) return 'ml';
   if (/purpurina|gesso|p[óo] |farinha|areia|pigment|glitter/.test(n)) return 'g';
+  if (/fita|cord[ãa]o|barbante|el[áa]stico|tecido|renda|vi[ée]s/.test(n)) return 'm';
   return 'un';
 }
 // Tenta achar "250 ml", "5 kg" etc. no nome do produto, pra pré-preencher o conteúdo da embalagem na importação
 function chuteConteudo(nome, un) {
-  if (un === 'un') return 0;
-  const re = un === 'ml' ? /(\d+[.,]?\d*)\s*(ml|l)\b/i : /(\d+[.,]?\d*)\s*(g|kg)\b/i;
+  const b = baseDe(un); if (b === 'un') return 0;
+  const re = { ml: /(\d+[.,]?\d*)\s*(ml|l)\b/i, g: /(\d+[.,]?\d*)\s*(g|kg)\b/i, cm: /(\d+[.,]?\d*)\s*(cm|m)\b/i }[b];
   const m = nome.match(re); if (!m) return 0;
-  let v = parseFloat(m[1].replace(',', '.')); if (/^(l|kg)$/i.test(m[2])) v *= 1000;
+  let v = parseFloat(m[1].replace(',', '.')); if (/^(l|kg)$/i.test(m[2])) v *= 1000; if (/^m$/i.test(m[2])) v *= 100;
   return v;
 }
 // Painel embutido para cadastrar um produto do estoque sem sair do formulário atual (kit, receita de arte...)
