@@ -129,6 +129,7 @@ setInterval(() => { if (document.visibilityState === 'visible' && !nv.sujo) puxa
 
 /* ===== Pedidos dos clientes (loja de produtos e cardápio de festas) ===== */
 const ehProd = p => p.dados && p.dados.tipo === 'produtos';
+const entregaPed = d => d.receber === 'retirada' || (!d.receber && !d.end) ? 'retirada' : `entrega${d.cidade ? ' ' + d.cidade : ''}`;
 const stPed = p => ({ novo: 'Novo', visto: 'Visto', arquivado: 'Arquivado', convertido: ehProd(p) ? 'Virou venda' : 'Virou orçamento' })[p.status];
 const clientePedido = p => {
   const dig = s => String(s || '').replace(/\D/g, '');
@@ -152,7 +153,7 @@ async function viewPedidos() {
   st.peds = data;
   const lista = data.filter(p => !tipo || (tipo === 'p') === ehProd(p));
   const quando = s => new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const resumo = p => ehProd(p) ? `🛍️ ${p.dados.itens.reduce((s, i) => s + i.q, 0)} produto(s)${p.dados.end ? ' · entrega' : ' · retirada'}` : `🎈 festa ${p.dados.data ? fdata(p.dados.data) : 'sem data'} · ${(p.dados.itens || []).length} item(ns)`;
+  const resumo = p => ehProd(p) ? `🛍️ ${p.dados.itens.reduce((s, i) => s + i.q, 0)} produto(s) · ${entregaPed(p.dados)}` : `🎈 festa ${p.dados.data ? fdata(p.dados.data) : 'sem data'} · ${(p.dados.itens || []).length} item(ns)`;
   app.innerHTML = `<div class="tabs"><button data-pa="" class="${arq ? '' : 'on'}">Recebidos</button><button data-pa="1" class="${arq ? 'on' : ''}">Arquivados</button></div>
   <div class="chips"><button data-pt="" class="${tipo ? '' : 'on'}">Todos</button><button data-pt="p" class="${tipo === 'p' ? 'on' : ''}">🛍️ Produtos</button><button data-pt="f" class="${tipo === 'f' ? 'on' : ''}">🎈 Festas</button></div>
   <div class="card">${lista.map(p => `<div class="row" data-ped="${p.id}"><div><div class="t">${p.status === 'novo' ? '🟣 ' : ''}${esc(p.nome)}</div><div class="s">${quando(p.criado_em)} · ${resumo(p)}</div></div><div style="text-align:right"><span class="badge">${stPed(p)}</span><div class="s">${brl(p.dados.total)}${p.dados.combinar ? ' +' : ''}</div></div></div>`).join('') || '<div class="vazio">Nenhum pedido</div>'}</div>
@@ -171,9 +172,11 @@ function formPedido(p) {
   const d = p.dados, prod = ehProd(p);
   if (p.status === 'novo') statusPedido(p, 'visto');
   const corpo = prod ? `
-    <div class="row"><span>Entrega</span><b>${d.end ? esc(d.end) : 'vai retirar'}</b></div>
+    ${d.forma ? `<div class="row"><span>Pagamento</span><b>${esc(FORMAS_ALL[d.forma] || d.forma)}</b></div>` : ''}
+    <div class="row"><span>Receber</span><b>${entregaPed(d) === 'retirada' ? 'vai retirar' : esc(`${d.end}${d.cidade ? ' - ' + d.cidade : ''}`)}</b></div>
     ${d.obs ? `<div class="row"><span>Observações</span><b>${esc(d.obs)}</b></div>` : ''}
     <h3 style="margin:14px 0 4px">Produtos</h3>${d.itens.map(i => { const a = by(db.artes, i.id); return `<div class="row"><span>${i.q}× ${esc(i.n)}${a ? ` <small style="color:var(--mut)">(estoque ${saldoArte(a)})</small>` : ' <small style="color:var(--bad)">(excluído)</small>'}</span><b>${brl(i.v * i.q)}</b></div>`; }).join('')}
+    ${d.taxa ? `<div class="row"><span>Taxa de entrega</span><b>${brl(d.taxa)}</b></div>` : ''}
     <div class="total">Total: ${brl(d.total)}</div>
     <button class="btn full" id="pconv">🛍️ Registrar venda</button>` : `
     ${d.end ? `<div class="row"><span>Endereço</span><b>${esc(d.end)}</b></div>` : ''}
@@ -195,7 +198,7 @@ function formPedido(p) {
         const itens = d.itens.filter(i => by(db.artes, i.id)).map(i => ({ arteId: i.id, q: i.q, preco: i.v }));
         if (!itens.length) return toast('Os produtos deste pedido não existem mais');
         const c = clientePedido(p); statusPedido(p, 'convertido');
-        return formVenda(null, { clienteId: c.id, itens, pago: false, obs: obs + (d.end ? ` · entregar em ${d.end}` : ' · retirada') + (d.obs ? ` · ${d.obs}` : '') });
+        return formVenda(null, { clienteId: c.id, itens, pago: false, taxa: d.taxa || 0, ...(d.forma ? { forma: d.forma } : {}), obs: obs + (entregaPed(d) === 'retirada' ? ' · retirada' : ` · entregar em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}`) + (d.obs ? ` · ${d.obs}` : '') });
       }
       const c = clientePedido(p);
       const itens = (d.itens || []).filter(i => cit(i.id)).map(i => mod(cit(i.id)) === 'f' ? (d.cri === 'c' ? { id: i.id, fx: 'c', q: 1, vc: 0, cc: 0 } : { id: i.id, fx: String(FAIXAS[+d.cri]), q: 1 }) : { id: i.id, q: 1 });

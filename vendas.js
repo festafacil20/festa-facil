@@ -1,9 +1,11 @@
 'use strict';
 /* ===== Vendas de produtos próprios (ex.: artes em gesso) ===== */
 // Estoque das artes = soma de db.pmovs (produção +, venda −, ajuste ±). Insumos usados na produção saem de db.movs.
-const saldoArte = a => db.pmovs.filter(m => m.arteId === a.id).reduce((s, m) => s + m.qtd, 0);
-const custoArte = a => custoComp(a.receita || []) + (a.extra || 0);
-const totalVenda = v => Math.max(0, v.itens.reduce((s, i) => s + i.preco * i.q, 0) - (v.desconto || 0));
+// Kit vendido na loja (a.kitId): o estoque é quantos kits dá para montar com os materiais, e a venda baixa os materiais direto.
+const kitDe = a => a && a.kitId && by(db.kits, a.kitId);
+const saldoArte = a => { const k = kitDe(a); return k ? quantosDa(k.itens) : db.pmovs.filter(m => m.arteId === a.id).reduce((s, m) => s + m.qtd, 0); };
+const custoArte = a => { const k = kitDe(a); return k ? custoComp(k.itens) : custoComp(a.receita || []) + (a.extra || 0); };
+const totalVenda = v => Math.max(0, v.itens.reduce((s, i) => s + i.preco * i.q, 0) - (v.desconto || 0)) + (v.taxa || 0);
 const custoVenda = v => v.itens.reduce((s, i) => s + (i.custo || 0) * i.q, 0);
 const nomeCliVenda = v => { const c = v.clienteId && by(db.clientes, v.clienteId); return c ? c.nome : (v.nome || 'Consumidor'); };
 st.vt = 'vendas'; st.vmes = new Date();
@@ -21,7 +23,7 @@ function viewVendas() {
     <button class="btn full" id="bvenda">＋ Nova venda</button>`;
   } else {
     const hist = [...db.pmovs].sort((a, b) => (b.data + b.id).localeCompare(a.data + a.id)).slice(0, 15);
-    corpo = `<div class="card">${db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return `<div class="row" data-a="${a.id}">${a.imgs && a.imgs[0] ? `<img src="${a.imgs[0]}" class="thumb">` : '<div class="thumb ph">🎨</div>'}<div style="flex:1"><div class="t">${esc(a.nome)}</div><div class="s">Estoque: ${s} un${c ? ' · custo ' + brl(c) : ''}${a.loja === false ? ' · <b>fora da loja</b>' : ''}</div></div><b>${brl(a.preco)}</b></div>`; }).join('') || '<div class="vazio">Cadastre suas artes (ex.: peças em gesso) para vender</div>'}</div>
+    corpo = `<div class="card">${db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return `<div class="row" data-a="${a.id}">${a.imgs && a.imgs[0] ? `<img src="${a.imgs[0]}" class="thumb">` : '<div class="thumb ph">🎨</div>'}<div style="flex:1"><div class="t">${esc(a.nome)}</div><div class="s">${kitDe(a) ? '🧰 kit · dá para montar ' + s : 'Estoque: ' + s} un${c ? ' · custo ' + brl(c) : ''}${a.loja === false ? ' · <b>fora da loja</b>' : ''}</div></div><b>${brl(a.preco)}</b></div>`; }).join('') || '<div class="vazio">Cadastre suas artes (ex.: peças em gesso) para vender</div>'}</div>
     <button class="btn full" id="barte">＋ Nova arte / produto</button>${db.artes.length ? '<button class="btn sec full" id="bprod">🔨 Registrar produção</button><button class="btn sec full" id="bloja">🔗 Link da loja para clientes</button>' : ''}
     ${hist.length ? `<div class="card" style="margin-top:12px"><h3>Últimas movimentações</h3>${hist.map(m => { const a = by(db.artes, m.arteId); return `<div class="row" data-pm="${m.id}"><div><div class="t">${esc(a ? a.nome : '(excluída)')}</div><div class="s">${fdata(m.data)} · ${m.tipo === 'producao' ? 'Produção' : m.tipo === 'venda' ? 'Venda' : 'Ajuste'}</div></div><b class="${m.qtd < 0 ? 'neg' : 'pos'}">${m.qtd > 0 ? '+' : ''}${m.qtd}</b></div>`; }).join('')}</div>` : ''}`;
   }
@@ -39,6 +41,7 @@ function viewVendas() {
 }
 
 function formArte(a) {
+  if (kitDe(a)) return formKit(kitDe(a)); // kit vendido na loja é editado na tela do kit
   const novo = !a; a = a || { id: uid(), nome: '', desc: '', imgs: [], preco: 0, extra: 0, receita: [] };
   let imgs = [...(a.imgs || [])]; const comp = (a.receita || []).map(c => ({ ...c }));
   sheet(novo ? 'Nova arte / produto' : 'Arte / produto', `
@@ -82,10 +85,11 @@ function formArte(a) {
 }
 
 function formProduzir(arteId) {
-  if (!db.artes.length) { toast('Cadastre uma arte primeiro'); return formArte(); }
-  const a0 = by(db.artes, arteId) || db.artes[0];
+  const artes = db.artes.filter(a => !kitDe(a));
+  if (!artes.length) { toast('Cadastre uma arte primeiro (kits saem do estoque direto na venda)'); return formArte(); }
+  const a0 = by(artes, arteId) || artes[0];
   sheet('Registrar produção', `
-    <label>O que foi produzido</label><select id="pa">${db.artes.map(a => `<option value="${a.id}" ${a.id === a0.id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>
+    <label>O que foi produzido</label><select id="pa">${artes.map(a => `<option value="${a.id}" ${a.id === a0.id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>
     <label>Quantas unidades</label><input id="pq" type="number" min="1" inputmode="numeric" value="1">
     <label>Data</label><input type="date" id="pd" value="${hoje()}">
     <div id="pres" style="margin-top:10px"></div>
@@ -134,6 +138,7 @@ function formVenda(v, pre) {
     <label>Itens vendidos</label>
     ${db.artes.map(a => { const it = v.itens.find(i => i.arteId === a.id); return `<div class="vrow" data-a="${a.id}"><div class="itemsel"><span>${esc(a.nome)}<br><small style="color:var(--mut)">estoque ${saldoArte(a)} · custo ${brl(custoArte(a))}</small></span><input type="number" min="0" inputmode="numeric" data-vq value="${it ? it.q : 0}" title="Quantidade"></div><div class="par"><input inputmode="decimal" data-vp value="${it ? it.preco : a.preco || ''}" placeholder="Preço unit."></div></div>`; }).join('')}
     <label>Desconto (R$)</label><input id="vdesc" inputmode="decimal" value="${v.desconto || ''}">
+    <label>Taxa de entrega (R$)</label><input id="vtx" inputmode="decimal" value="${v.taxa || ''}">
     <div class="total" id="vtot"></div>
     <h3 style="margin:16px 0 0">Pagamento</h3>
     <label>Forma de pagamento</label><select id="vf">${['pix', 'dinheiro', 'debito', 'credito', 'boleto', 'outro'].map(k => `<option value="${k}" ${v.forma === k ? 'selected' : ''}>${FORMAS_ALL[k]}</option>`).join('')}</select>
@@ -142,7 +147,7 @@ function formVenda(v, pre) {
     <div class="chk"><input type="checkbox" id="vpg" ${v.pago ? 'checked' : ''}><label style="margin:0">Já recebi (lança a entrada no Caixa)</label></div>
     <label>Observações</label><textarea id="vo" rows="2">${esc(v.obs)}</textarea>
     <button class="btn full" id="vsave">Salvar venda</button>${novo ? '' : '<button class="btn del full" id="vdel">Excluir venda</button>'}`, b => {
-    const ler = () => ({ ...v, data: $('#vd').value, clienteId: $('#vc').value, nome: $('#vn').value.trim(), desconto: num($('#vdesc').value), forma: $('#vf').value, parcelas: Math.max(1, Math.min(36, parseInt($('#vpa').value) || 1)), primeira: $('#vp1').value || $('#vd').value, pago: $('#vpg').checked, obs: $('#vo').value.trim(),
+    const ler = () => ({ ...v, data: $('#vd').value, clienteId: $('#vc').value, nome: $('#vn').value.trim(), desconto: num($('#vdesc').value), taxa: num($('#vtx').value), forma: $('#vf').value, parcelas: Math.max(1, Math.min(36, parseInt($('#vpa').value) || 1)), primeira: $('#vp1').value || $('#vd').value, pago: $('#vpg').checked, obs: $('#vo').value.trim(),
       itens: [...b.querySelectorAll('.vrow')].map(r => { const a = by(db.artes, r.dataset.a), q = Math.max(0, parseInt(r.querySelector('[data-vq]').value) || 0), ant = v.itens.find(i => i.arteId === a.id); return { arteId: a.id, q, preco: num(r.querySelector('[data-vp]').value), custo: ant && ant.custo != null ? ant.custo : custoArte(a) }; }).filter(i => i.q > 0) });
     const atual = () => { const o = ler(), t = totalVenda(o), c = custoVenda(o); $('#vtot').innerHTML = 'Total: ' + brl(t) + (c ? `<div class="s" style="font-weight:400">Custo ${brl(c)} · Lucro <b class="${t - c >= 0 ? 'pos' : 'neg'}">${brl(t - c)}</b></div>` : ''); };
     b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
@@ -150,15 +155,15 @@ function formVenda(v, pre) {
       const o = ler(); if (!o.data) return toast('Informe a data'); if (!o.itens.length) return toast('Marque a quantidade vendida de ao menos um item');
       const falta = o.itens.filter(i => { const a = by(db.artes, i.arteId); return saldoArte(a) + antes(i.arteId) < i.q; }).map(i => { const a = by(db.artes, i.arteId); return `${a.nome}: vendendo ${i.q}, estoque ${saldoArte(a) + antes(i.arteId)}`; });
       if (falta.length && !confirm('Estoque insuficiente:\n\n' + falta.join('\n') + '\n\nSalvar mesmo assim (o estoque ficará negativo)?')) return;
-      db.pmovs = db.pmovs.filter(m => m.vendaId !== o.id); db.lancamentos = db.lancamentos.filter(l => l.vendaId !== o.id);
+      db.pmovs = db.pmovs.filter(m => m.vendaId !== o.id); db.movs = db.movs.filter(m => m.vendaId !== o.id); db.lancamentos = db.lancamentos.filter(l => l.vendaId !== o.id);
       const existe = by(db.vendas, o.id); if (existe) Object.assign(existe, o); else db.vendas.push(o);
-      o.itens.forEach(i => db.pmovs.push({ id: uid(), arteId: i.arteId, data: o.data, tipo: 'venda', qtd: -i.q, vendaId: o.id }));
+      o.itens.forEach(i => { const k = kitDe(by(db.artes, i.arteId)); if (k) baixarComp(k.itens, i.q, { motivo: `Venda: ${i.q}× ${k.nome}`, vendaId: o.id, data: o.data }); else db.pmovs.push({ id: uid(), arteId: i.arteId, data: o.data, tipo: 'venda', qtd: -i.q, vendaId: o.id }); });
       if (o.pago) {
         const total = totalVenda(o), pa = o.parcelas, cada = Math.floor(total / pa * 100) / 100;
         for (let k = 0; k < pa; k++) db.lancamentos.push({ id: uid(), tipo: 'r', valor: k === pa - 1 ? +(total - cada * (pa - 1)).toFixed(2) : cada, data: somaMeses(o.primeira, k), cat: 'Venda de produtos', desc: `Venda: ${nomeCliVenda(o)}${pa > 1 ? ` (${k + 1}/${pa})` : ''}`, forma: o.forma, vendaId: o.id, origem: 'venda' });
       }
       save(); fechar(); st.vt = 'vendas'; st.vmes = new Date(o.data + 'T12:00'); if (rota === 'vendas') render(); toast('Venda salva');
     };
-    if (!novo) $('#vdel').onclick = () => { if (!confirm('Excluir esta venda? O estoque das artes e os lançamentos no Caixa também são revertidos.')) return; db.vendas = db.vendas.filter(x => x.id !== v.id); db.pmovs = db.pmovs.filter(m => m.vendaId !== v.id); db.lancamentos = db.lancamentos.filter(l => l.vendaId !== v.id); save(); fechar(); render(); };
+    if (!novo) $('#vdel').onclick = () => { if (!confirm('Excluir esta venda? O estoque das artes e os lançamentos no Caixa também são revertidos.')) return; db.vendas = db.vendas.filter(x => x.id !== v.id); db.pmovs = db.pmovs.filter(m => m.vendaId !== v.id); db.movs = db.movs.filter(m => m.vendaId !== v.id); db.lancamentos = db.lancamentos.filter(l => l.vendaId !== v.id); save(); fechar(); render(); };
   });
 }

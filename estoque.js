@@ -106,7 +106,7 @@ function viewEstoque() {
     }).join('') || '<div class="vazio">Nenhum produto cadastrado</div>'}</div>
     <div style="display:flex;gap:8px"><button class="btn full" id="bcompra">🛒 Lançar compra</button><button class="btn sec full" id="bbaixa">➖ Dar baixa</button></div>`;
   } else if (st.et === 'kits') {
-    corpo = `<div class="card">${db.kits.map(k => `<div class="row" data-k="${k.id}"><div style="flex:1"><div class="t">${esc(k.nome)}</div><div class="s">${esc(txtComp(k.itens)) || 'sem produtos'}</div><div class="s">Custo ≈ ${brl(custoComp(k.itens))} · dá para ${quantosDa(k.itens)} kit(s) com o estoque atual${k.vinculo ? ' · ligado ao catálogo' : ''}</div></div>›</div>`).join('') || '<div class="vazio">Nenhum kit. Um kit é uma lista de produtos que você usa junto (ex.: kit oficina de slime).</div>'}</div>
+    corpo = `<div class="card">${db.kits.map(k => `<div class="row" data-k="${k.id}"><div style="flex:1"><div class="t">${esc(k.nome)}</div><div class="s">${esc(txtComp(k.itens)) || 'sem produtos'}</div><div class="s">Custo ≈ ${brl(custoComp(k.itens))} · dá para ${quantosDa(k.itens)} kit(s) com o estoque atual${k.vinculo ? ' · ligado ao catálogo' : ''}${(by(db.artes, k.arteId) || {}).loja === true ? ' · 🛍️ na loja' : ''}</div></div>›</div>`).join('') || '<div class="vazio">Nenhum kit. Um kit é uma lista de produtos que você usa junto (ex.: kit oficina de slime).</div>'}</div>
     <button class="btn full" id="bkit">＋ Novo kit</button>${db.kits.length ? '<button class="btn sec full" id="bbkit">➖ Dar baixa de um kit</button>' : ''}`;
   } else if (st.et === 'compras') {
     const lista = [...db.compras].sort((a, b) => b.data.localeCompare(a.data));
@@ -390,17 +390,31 @@ function formKit(k) {
   const comp = k.itens.map(c => ({ ...c }));
   const opcVinc = db.catalogo.flatMap(it => mod(it) === 'f' ? FAIXAS.map(f => [`${it.id}|${f}`, `${it.nome} · até ${f} crianças`]) : [[`${it.id}|`, it.nome]]);
   const vv = k.vinculo ? `${k.vinculo.itemId}|${k.vinculo.fx || ''}` : '';
+  const art = by(db.artes, k.arteId), naLoja = !!(art && art.loja !== false);
+  let imgs = [...((art && art.imgs) || [])];
   sheet(novo ? 'Novo kit' : 'Kit', `
     <label>Nome do kit</label><input id="kn" value="${esc(k.nome)}" placeholder="Ex.: Kit oficina slime - 10 crianças">
     <label>O que vai no kit</label><div id="kcomp"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec sm" id="kadd" type="button">＋ Adicionar produto</button><button class="btn sec sm" id="knovoprod" type="button">＋ Novo produto no estoque</button></div>
     ${painelNovoProdutoHTML()}
     <div class="s" id="kcusto" style="margin-top:10px;color:var(--mut)"></div>
-    <label>Ligar a um item do catálogo (opcional)</label><select id="kv"><option value="">Não ligar</option>${opcVinc.map(([v, t]) => `<option value="${v}" ${v === vv ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+    <div class="card" style="background:#f3f0fa;margin:14px 0 0"><div class="chk" style="margin:0"><input type="checkbox" id="kvend" ${naLoja ? 'checked' : ''}><label style="margin:0"><b>🛍️ Vender este kit na loja</b></label></div>
+      <div id="kvbox" ${naLoja ? '' : 'hidden'}>
+        <div class="s" style="color:var(--mut);margin-top:6px">Aparece na loja online. Ao registrar a venda, os materiais do kit saem do estoque sozinhos.</div>
+        <label>Preço de venda (R$)</label><input id="kpr" inputmode="decimal" value="${art && art.preco || ''}">
+        <label>Descrição (aparece na loja)</label><textarea id="kds" rows="2">${esc(art ? art.desc : '')}</textarea>
+        <label>Fotos (até 3)</label><div id="kimg" class="fotos"></div><input type="file" id="kf" accept="image/*" multiple hidden><button class="btn sec sm" id="kfb" type="button">📷 Adicionar fotos</button>
+      </div></div>
+    <label>Ligar a um item do catálogo de festas (opcional)</label><select id="kv"><option value="">Não ligar</option>${opcVinc.map(([v, t]) => `<option value="${v}" ${v === vv ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
     <div class="s" style="color:var(--mut)">Ligado, o kit aparece na festa que tiver esse item e você dá baixa do estoque com um toque.</div>
     <button class="btn full" id="ksave">Salvar kit</button>
     ${novo ? '' : '<button class="btn sec full" id="kbaixa">➖ Dar baixa deste kit</button><button class="btn del full" id="kdel">Excluir kit</button>'}`, b => {
     const ed = editorComp($('#kcomp'), comp);
+    const pv = () => { $('#kimg').innerHTML = imgs.map((s, i) => `<span class="ph1"><img src="${s}"><button type="button" data-rm="${i}">✕</button></span>`).join(''); };
+    pv(); $('#kimg').onclick = e => { const x = e.target.closest('[data-rm]'); if (x) { imgs.splice(+x.dataset.rm, 1); pv(); } };
+    $('#kfb').onclick = () => $('#kf').click();
+    $('#kf').onchange = async e => { for (const f of e.target.files) { if (imgs.length >= 3) break; await new Promise(res => lerImagem(f, d => { imgs.push(d); res(); })); } e.target.value = ''; pv(); };
+    $('#kvend').onchange = () => $('#kvbox').hidden = !$('#kvend').checked;
     const custo = () => { ed.le(); $('#kcusto').textContent = 'Custo estimado do kit: ' + brl(custoComp(comp)) + (quantosDa(comp) || comp.length ? ` · dá para ${quantosDa(comp)} kit(s) com o estoque atual` : ''); };
     b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
     const qpBox = $('#qpBox');
@@ -411,10 +425,17 @@ function formKit(k) {
       ed.le(); const n = $('#kn').value.trim(); if (!n) return toast('Informe o nome do kit');
       const itens = comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })); if (!itens.length) return toast('Adicione ao menos um produto com quantidade');
       const [iid, fx] = $('#kv').value ? $('#kv').value.split('|') : [null, ''];
+      const vend = $('#kvend').checked, preco = num($('#kpr').value);
+      if (vend && preco <= 0) return toast('Informe o preço de venda do kit');
       Object.assign(k, { nome: n, itens, vinculo: iid ? { itemId: iid, fx } : null });
-      if (novo) db.kits.push(k); save(); fechar(); st.et = 'kits'; render(); toast('Kit salvo');
+      let a = by(db.artes, k.arteId);
+      if (vend) { if (!a) { a = { id: uid(), receita: [], extra: 0 }; db.artes.push(a); k.arteId = a.id; } Object.assign(a, { nome: n, desc: $('#kds').value.trim(), imgs: [...imgs], preco, loja: true, kitId: k.id }); }
+      else if (a) a.loja = false;
+      if (novo) db.kits.push(k); save(); fechar(); st.et = 'kits'; render(); toast(vend ? 'Kit salvo e na loja' : 'Kit salvo');
     };
-    if (!novo) { $('#kbaixa').onclick = () => formBaixaKit(k.id); $('#kdel').onclick = () => { if (!confirm('Excluir o kit? (baixas já feitas continuam no histórico)')) return; db.kits = db.kits.filter(x => x.id !== k.id); save(); fechar(); render(); }; }
+    if (!novo) { $('#kbaixa').onclick = () => formBaixaKit(k.id); $('#kdel').onclick = () => { if (!confirm('Excluir o kit? (baixas já feitas continuam no histórico)' + (art ? ' Ele também sai da loja.' : ''))) return; db.kits = db.kits.filter(x => x.id !== k.id);
+        if (art) { if (db.vendas.some(v => v.itens.some(i => i.arteId === art.id))) Object.assign(art, { kitId: null, loja: false }); else db.artes = db.artes.filter(x => x.id !== art.id); }
+        save(); fechar(); render(); }; }
   });
 }
 function formBaixaKit(kitId) {
