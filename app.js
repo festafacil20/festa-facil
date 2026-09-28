@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '19'; // manter igual ao número em sw.js (marizekids-v19)
+const VERSAO = '20'; // manter igual ao número em sw.js (marizekids-v20)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -112,7 +112,7 @@ const st = { mes: new Date(), dia: hoje(), cat: '', busca: '', fmes: new Date(),
 function ir(r) {
   rota = r; $('#titulo').textContent = r === 'dashboard' ? (db.config.nome || 'Marize Kids') : titulos[r];
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.r === r));
-  $('#btnAdd').hidden = !['agenda', 'clientes', 'catalogo', 'financeiro', 'estoque', 'vendas'].includes(r);
+  $('#btnAdd').hidden = !['agenda', 'clientes', 'catalogo', 'financeiro', 'estoque', 'vendas', 'pedidos'].includes(r);
   render();
 }
 function render() { rotas[rota](); window.scrollTo(0, 0); }
@@ -124,6 +124,7 @@ $('#btnAdd').onclick = () => {
   else if (rota === 'financeiro') formLanc();
   else if (rota === 'estoque') (st.et === 'kits' ? formKit() : formProduto());
   else if (rota === 'vendas') (st.vt === 'artes' ? formArte() : formVenda());
+  else if (rota === 'pedidos') formNovoPedido();
 };
 $('#btnCfg').onclick = () => ir('config');
 const app = $('#app');

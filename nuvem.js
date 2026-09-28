@@ -137,38 +137,14 @@ const clientePedido = p => {
   if (!c) { c = { id: uid(), nome: p.nome, tel: p.tel, obs: '' }; db.clientes.push(c); save(); }
   return c;
 };
-async function contarPedidos(el) {
-  const { count } = await sb.from('pedidos').select('id', { count: 'exact', head: true }).eq('status', 'novo');
-  if (el && el.isConnected) el.innerHTML = `<button class="btn ${count ? '' : 'sec'} full" style="margin:0 0 12px">📥 Pedidos dos clientes${count ? ` · <b>${count} novo(s)</b>` : ''}</button>`;
-  if (el) el.onclick = () => ir('pedidos');
-}
-async function viewPedidos() {
-  app.innerHTML = '<div class="vazio">Carregando pedidos...</div>';
-  const arq = st.pedArq, tipo = st.pedTipo || '';
-  let q = sb.from('pedidos').select('*').order('criado_em', { ascending: false }).limit(200);
-  q = arq ? q.eq('status', 'arquivado') : q.neq('status', 'arquivado');
-  const { data, error } = await q;
-  if (rota !== 'pedidos') return;
-  if (error) { app.innerHTML = '<div class="card vazio">Não foi possível carregar (sem internet?)</div>'; return; }
-  st.peds = data;
-  const lista = data.filter(p => !tipo || (tipo === 'p') === ehProd(p));
-  const quando = s => new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const resumo = p => ehProd(p) ? `🛍️ ${p.dados.itens.reduce((s, i) => s + i.q, 0)} produto(s) · ${entregaPed(p.dados)}` : `🎈 festa ${p.dados.data ? fdata(p.dados.data) : 'sem data'} · ${(p.dados.itens || []).length} item(ns)`;
-  app.innerHTML = `<div class="tabs"><button data-pa="" class="${arq ? '' : 'on'}">Recebidos</button><button data-pa="1" class="${arq ? 'on' : ''}">Arquivados</button></div>
-  <div class="chips"><button data-pt="" class="${tipo ? '' : 'on'}">Todos</button><button data-pt="p" class="${tipo === 'p' ? 'on' : ''}">🛍️ Produtos</button><button data-pt="f" class="${tipo === 'f' ? 'on' : ''}">🎈 Festas</button></div>
-  <div class="card">${lista.map(p => `<div class="row" data-ped="${p.id}"><div><div class="t">${p.status === 'novo' ? '🟣 ' : ''}${esc(p.nome)}</div><div class="s">${quando(p.criado_em)} · ${resumo(p)}</div></div><div style="text-align:right"><span class="badge">${stPed(p)}</span><div class="s">${brl(p.dados.total)}${p.dados.combinar ? ' +' : ''}</div></div></div>`).join('') || '<div class="vazio">Nenhum pedido</div>'}</div>
-  <button class="btn sec full" id="plinkp">🔗 Link da loja de produtos</button><button class="btn sec full" id="plinkf">🔗 Link de festas</button>`;
-  app.querySelectorAll('[data-pa]').forEach(b => b.onclick = () => { st.pedArq = !!b.dataset.pa; viewPedidos(); });
-  app.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { st.pedTipo = b.dataset.pt; viewPedidos(); });
-  app.querySelectorAll('[data-ped]').forEach(r => r.onclick = () => formPedido(st.peds.find(p => p.id === r.dataset.ped)));
-  $('#plinkp').onclick = gerarLoja; $('#plinkf').onclick = gerarCardapio;
-}
+// contarPedidos e viewPedidos (painel de controle de pedidos/entregas) ficam em entregas.js
 async function statusPedido(p, s) {
   const { error } = await sb.from('pedidos').update({ status: s }).eq('id', p.id);
   if (error) { toast('Não foi possível atualizar (sem internet?)'); return false; }
   p.status = s; return true;
 }
 function formPedido(p) {
+  if (ehProd(p)) return formPedidoProd(p); // pedidos de produtos: painel de entregas (entregas.js)
   const d = p.dados, prod = ehProd(p);
   if (p.status === 'novo') statusPedido(p, 'visto');
   const corpo = prod ? `
