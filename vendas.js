@@ -21,8 +21,8 @@ function viewVendas() {
     <button class="btn full" id="bvenda">＋ Nova venda</button>`;
   } else {
     const hist = [...db.pmovs].sort((a, b) => (b.data + b.id).localeCompare(a.data + a.id)).slice(0, 15);
-    corpo = `<div class="card">${db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return `<div class="row" data-a="${a.id}">${a.imgs && a.imgs[0] ? `<img src="${a.imgs[0]}" class="thumb">` : '<div class="thumb ph">🎨</div>'}<div style="flex:1"><div class="t">${esc(a.nome)}</div><div class="s">Estoque: ${s} un${c ? ' · custo ' + brl(c) : ''}</div></div><b>${brl(a.preco)}</b></div>`; }).join('') || '<div class="vazio">Cadastre suas artes (ex.: peças em gesso) para vender</div>'}</div>
-    <button class="btn full" id="barte">＋ Nova arte / produto</button>${db.artes.length ? '<button class="btn sec full" id="bprod">🔨 Registrar produção</button>' : ''}
+    corpo = `<div class="card">${db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return `<div class="row" data-a="${a.id}">${a.imgs && a.imgs[0] ? `<img src="${a.imgs[0]}" class="thumb">` : '<div class="thumb ph">🎨</div>'}<div style="flex:1"><div class="t">${esc(a.nome)}</div><div class="s">Estoque: ${s} un${c ? ' · custo ' + brl(c) : ''}${a.loja === false ? ' · <b>fora da loja</b>' : ''}</div></div><b>${brl(a.preco)}</b></div>`; }).join('') || '<div class="vazio">Cadastre suas artes (ex.: peças em gesso) para vender</div>'}</div>
+    <button class="btn full" id="barte">＋ Nova arte / produto</button>${db.artes.length ? '<button class="btn sec full" id="bprod">🔨 Registrar produção</button><button class="btn sec full" id="bloja">🔗 Link da loja para clientes</button>' : ''}
     ${hist.length ? `<div class="card" style="margin-top:12px"><h3>Últimas movimentações</h3>${hist.map(m => { const a = by(db.artes, m.arteId); return `<div class="row" data-pm="${m.id}"><div><div class="t">${esc(a ? a.nome : '(excluída)')}</div><div class="s">${fdata(m.data)} · ${m.tipo === 'producao' ? 'Produção' : m.tipo === 'venda' ? 'Venda' : 'Ajuste'}</div></div><b class="${m.qtd < 0 ? 'neg' : 'pos'}">${m.qtd > 0 ? '+' : ''}${m.qtd}</b></div>`; }).join('')}</div>` : ''}`;
   }
   app.innerHTML = `<div class="tabs">${abas.map(([k, t]) => `<button data-vt="${k}" class="${st.vt === k ? 'on' : ''}">${t}</button>`).join('')}</div>${corpo}`;
@@ -35,6 +35,7 @@ function viewVendas() {
   const bv = $('#bvenda'); if (bv) bv.onclick = () => formVenda();
   const ba = $('#barte'); if (ba) ba.onclick = () => formArte();
   const bp = $('#bprod'); if (bp) bp.onclick = () => formProduzir();
+  const bl = $('#bloja'); if (bl) bl.onclick = gerarLoja;
 }
 
 function formArte(a) {
@@ -45,6 +46,7 @@ function formArte(a) {
     <label>Descrição (opcional)</label><textarea id="ad" rows="2">${esc(a.desc)}</textarea>
     <label>Fotos (até 3)</label><div id="aimg" class="fotos"></div><input type="file" id="af" accept="image/*" multiple hidden><button class="btn sec sm" id="afb" type="button">📷 Adicionar fotos</button>
     <label>Preço de venda (R$)</label><input id="ap" inputmode="decimal" value="${a.preco || ''}">
+    <div class="chk"><input type="checkbox" id="aloja" ${a.loja === false ? '' : 'checked'}><label style="margin:0">Mostrar na loja online (link para clientes)</label></div>
     <label>Insumos usados em 1 unidade (receita) — opcional</label>
     <div id="acomp"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec sm" id="aadd" type="button">＋ Adicionar insumo</button><button class="btn sec sm" id="anovoprod" type="button">＋ Novo produto no estoque</button></div>
@@ -67,7 +69,7 @@ function formArte(a) {
     $('#asave').onclick = () => {
       const n = $('#an').value.trim(); if (!n) return toast('Informe o nome');
       ed.le(); const bak = JSON.stringify(a);
-      Object.assign(a, { nome: n, desc: $('#ad').value.trim(), imgs: [...imgs], preco: num($('#ap').value), extra: num($('#ax').value), receita: comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) });
+      Object.assign(a, { nome: n, desc: $('#ad').value.trim(), imgs: [...imgs], preco: num($('#ap').value), loja: $('#aloja').checked, extra: num($('#ax').value), receita: comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) });
       if (novo) db.artes.push(a);
       try { save(); } catch { if (novo) db.artes.pop(); else Object.assign(a, JSON.parse(bak)); return toast('Sem espaço: use menos fotos ou faça backup'); }
       fechar(); st.vt = 'artes'; render(); toast('Salvo');
@@ -119,11 +121,12 @@ function detalhePmov(m) {
   });
 }
 
-function formVenda(v) {
+// pre: rascunho de venda nova já preenchido (ex.: vindo de um pedido da loja)
+function formVenda(v, pre) {
   if (!v && !db.artes.length) { toast('Cadastre as artes primeiro'); st.vt = 'artes'; return formArte(); }
   const novo = !v;
-  v = v || { id: uid(), data: hoje(), clienteId: '', nome: '', itens: [], desconto: 0, forma: 'pix', parcelas: 1, primeira: hoje(), pago: true, obs: '' };
-  const antes = id => (v.itens.find(i => i.arteId === id) || { q: 0 }).q;
+  v = v || { id: uid(), data: hoje(), clienteId: '', nome: '', itens: [], desconto: 0, forma: 'pix', parcelas: 1, primeira: hoje(), pago: true, obs: '', ...pre };
+  const antes = id => novo ? 0 : (v.itens.find(i => i.arteId === id) || { q: 0 }).q;
   sheet(novo ? 'Nova venda' : 'Venda', `
     <label>Data</label><input type="date" id="vd" value="${v.data}">
     <label>Cliente</label><select id="vc"><option value="">Consumidor (sem cadastro)</option>${db.clientes.map(c => `<option value="${c.id}" ${c.id === v.clienteId ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>

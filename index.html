@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top"><h1 id="titulo">Festa Fácil</h1><div class="topbtns"><button id="btnAdd" class="fab-top" hidden>＋</button><button id="btnCfg" class="fab-top" title="Configurações">⚙️</button></div></header>
+<header class="top"><h1 id="titulo">Festa Fácil</h1><div class="topbtns"><span id="nuvem" class="nuvem"></span><button id="btnAdd" class="fab-top" hidden>＋</button><button id="btnCfg" class="fab-top" title="Configurações">⚙️</button></div></header>
 <main id="app"></main>
 <nav class="bottom" id="nav">
   <button data-r="dashboard"><span>🏠</span>Início</button>
@@ -26,10 +26,13 @@
   <div class="sheet"><div class="sheet-h"><h2 id="sheetTitle"></h2><button id="sheetClose">✕</button></div><div id="sheetBody"></div></div>
 </div>
 <div id="toast" class="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 <script src="estoque.js"></script>
 <script src="vendas.js"></script>
 <script src="relatorios.js"></script>
+<script src="nuvem.js"></script>
 <script src="boot.js"></script>
 </body>
 </html>

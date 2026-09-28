@@ -9,8 +9,17 @@ function decode(s) {
   s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0))));
 }
-let d;
-try { d = window.__D || decode(location.hash.replace(/^#d=/, '')); if (!d || !Array.isArray(d.i) || !Array.isArray(d.c)) throw 0; } catch { d = null; }
+// Origem do cardápio: arquivo baixado (__D), link antigo com os dados no endereço (#d=) ou a vitrine na nuvem
+const NUVEM = !window.__D && !location.hash.startsWith('#d=') && typeof SUPA_URL !== 'undefined';
+const H = typeof SUPA_KEY !== 'undefined' ? { apikey: SUPA_KEY, 'Content-Type': 'application/json' } : {};
+let d = null, semCardapio = false;
+async function carregar() {
+  if (NUVEM) {
+    const r = await fetch(SUPA_URL + '/rest/v1/vitrine?select=data&id=eq.1', { headers: H });
+    const j = await r.json(); if (r.ok && !j.length) semCardapio = true; return j[0] && j[0].data;
+  }
+  return window.__D || decode(location.hash.replace(/^#d=/, ''));
+}
 
 const S = { nome: '', tel: '', end: '', cri: '', data: '', sem: false, cat: '', sel: new Set() };
 const modelo = x => (d.c.find(c => c.id === x.c) || {}).m || 'x';
@@ -76,18 +85,39 @@ function galeria(x, k) {
   if (g.length > 1) { $('#lbp').onclick = () => galeria(x, (k - 1 + g.length) % g.length); $('#lbn').onclick = () => galeria(x, (k + 1) % g.length); }
 }
 
-if (!d) {
-  $('#lista').innerHTML = '<div class="card vazio">Link inválido. Peça um novo cardápio à empresa.</div>';
-  $('.bar').hidden = true;
-} else {
-  document.title = 'Cardápio - ' + (d.n || '');
-  $('#enviar').onclick = () => {
-    const t = totais(); if (!t.its.length) return alert('Marque ao menos um item.');
-    const porCat = d.c.map(c => ({ c, its: t.its.filter(x => x.c === c.id) })).filter(g => g.its.length);
-    const txt = `Olá! Quero um orçamento para a minha festa 🎉\n\nNome: ${S.nome}\nTelefone: ${S.tel}${S.end ? '\nEndereço: ' + S.end : ''}\nCrianças: ${txtCri()}\nData: ${S.sem ? 'ainda não definida' : S.data.split('-').reverse().join('/')}\n\n` +
+function textoWhats(t) {
+  const porCat = d.c.map(c => ({ c, its: t.its.filter(x => x.c === c.id) })).filter(g => g.its.length);
+  return `Olá! Quero um orçamento para a minha festa 🎉\n\nNome: ${S.nome}\nTelefone: ${S.tel}${S.end ? '\nEndereço: ' + S.end : ''}\nCrianças: ${txtCri()}\nData: ${S.sem ? 'ainda não definida' : S.data.split('-').reverse().join('/')}\n\n` +
       porCat.map(g => `*${g.c.n}*\n` + g.its.map(x => `• ${x.n} - ${txtPreco(x)}`).join('\n')).join('\n\n') + `\n\nTotal: ${brl(t.total)}${t.comb ? ' + itens a combinar' : ''}`;
-    let n = String(d.w || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n;
-    location.href = `https://wa.me/${n}?text=${encodeURIComponent(txt)}`;
-  };
-  tela1();
 }
+function linkWhats(txt) { let n = String(d.w || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n; return `https://wa.me/${n}?text=${encodeURIComponent(txt)}`; }
+async function enviarPedido() {
+  const t = totais(); if (!t.its.length) return alert('Marque ao menos um item.');
+  if (!NUVEM) { location.href = linkWhats(textoWhats(t)); return; }
+  const b = $('#enviar'); b.disabled = true; b.textContent = 'Enviando...';
+  const dados = { end: S.end, cri: S.cri, data: S.sem ? '' : S.data, total: t.total, combinar: t.comb, itens: t.its.map(x => { const p = preco(x); return { id: x.id, n: x.n, v: p.v || 0, comb: !!p.combinar }; }) };
+  try {
+    const r = await fetch(SUPA_URL + '/rest/v1/pedidos', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify({ nome: S.nome.slice(0, 120), tel: S.tel.slice(0, 30), dados }) });
+    if (!r.ok) throw 0;
+  } catch {
+    b.disabled = false; b.textContent = 'Enviar pedido';
+    if (confirm('Não foi possível enviar agora. Enviar pelo WhatsApp?')) location.href = linkWhats(textoWhats(t));
+    return;
+  }
+  $('.bar').hidden = true;
+  $('#lista').innerHTML = `<div class="card hero"><h2>🎉 Pedido enviado!</h2><p>Recebemos o seu pedido e vamos entrar em contato pelo telefone ${esc(S.tel)}.</p></div>
+  ${d.w ? '<button class="btn wa full" id="zap">Falar agora pelo WhatsApp</button>' : ''}<button class="btn sec full" id="outro">Fazer outro pedido</button>`;
+  if (d.w) $('#zap').onclick = () => location.href = linkWhats(textoWhats(t));
+  $('#outro').onclick = () => { S.sel.clear(); tela1(); };
+  window.scrollTo(0, 0);
+}
+carregar().then(x => { if (!x || !Array.isArray(x.i) || !Array.isArray(x.c)) throw 0; d = x; }).catch(() => {}).then(() => {
+  if (!d) {
+    $('#lista').innerHTML = `<div class="card vazio">${semCardapio ? 'O cardápio ainda não foi publicado. Volte daqui a pouco!' : NUVEM ? 'Não foi possível carregar o cardápio. Verifique a internet e tente de novo.' : 'Link inválido. Peça um novo cardápio à empresa.'}</div>`;
+    $('.bar').hidden = true; return;
+  }
+  document.title = 'Cardápio - ' + (d.n || '');
+  if (!NUVEM) { $('#enviar').textContent = 'Enviar pedido pelo WhatsApp'; $('#enviar').classList.add('wa'); }
+  $('#enviar').onclick = enviarPedido;
+  tela1();
+});

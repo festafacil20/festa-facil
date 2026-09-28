@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1';
-const VERSAO = '12'; // manter igual ao número em sw.js (festa-facil-v9)
+const VERSAO = '13'; // manter igual ao número em sw.js (festa-facil-v13)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -19,7 +19,7 @@ function migrar() {
   db.eventos.forEach(e => (e.itens || []).forEach(i => { if (i.t === 'o' && !i.fx) i.fx = '10'; delete i.t; }));
 }
 migrar();
-const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+const save = () => { localStorage.setItem(KEY, JSON.stringify(db)); nuvemAgendar(); };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -162,10 +162,12 @@ function viewDashboard() {
     <div class="kpi"><small>Saldo</small><b class="${r - d >= 0 ? 'pos' : 'neg'}">${brl(r - d)}</b></div>
   </div>
   <div class="kpi" style="margin-bottom:12px"><small>Lucro previsto dos eventos do mês</small><b class="${L.l >= 0 ? 'pos' : 'neg'}">${brl(L.l)}</b></div>
+  <div id="dpeds"></div>
   ${avisos.map(a => `<div class="aviso ${a.bad ? 'bad' : ''}">${a.t}</div>`).join('')}
   <div class="card"><h3>Últimos 6 meses</h3><div class="chart">${meses.map(m => `<div class="c"><div class="b"><i style="height:${m.r / mx * 100}%;background:var(--ok)"></i><i style="height:${m.d / mx * 100}%;background:var(--bad)"></i></div>${m.l}</div>`).join('')}</div>
   <div style="font-size:.7rem;color:var(--mut);margin-top:6px">🟩 receita &nbsp; 🟥 despesa</div></div>
   <div class="card"><h3>Próximos eventos</h3>${futuros.slice(0, 5).map(rowEvento).join('') || '<div class="vazio">Nenhum evento agendado</div>'}</div>`;
+  contarPedidos($('#dpeds'));
 }
 function rowEvento(e) {
   const c = by(db.clientes, e.clienteId);
@@ -323,7 +325,7 @@ function viewCatalogo() {
   ${cat ? `<div class="card">${arr.map(o => `<div class="row" data-cat="${o.id}">${thumb(o)}<div style="flex:1"><div class="t">${esc(o.nome)}</div><div class="s">${sub(o)}</div></div><b>${preco(o)}</b></div>`).join('') || '<div class="vazio">Nada nesta categoria</div>'}</div>
   <button class="btn full" id="novoCat">＋ Adicionar em ${esc(cat.nome)}</button>
   <button class="btn sec full" id="edCat">✎ Editar categoria “${esc(cat.nome)}”</button>` : '<div class="vazio">Crie uma categoria para começar</div>'}
-  <button class="btn sec full" id="linkCard">🔗 Gerar cardápio para clientes</button>`;
+  <button class="btn sec full" id="linkCard">🔗 Link de festas para clientes</button>`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { st.cat = b.dataset.tab; viewCatalogo(); });
   app.querySelectorAll('[data-cat]').forEach(r => r.onclick = () => formCatalogo(st.cat, by(db.catalogo, r.dataset.cat)));
   $('#novaCat').onclick = () => formCategoria();
@@ -389,13 +391,14 @@ function formCatalogo(catId, o) {
 }
 function b64(obj) { return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function dadosCardapio(comFotos) {
-  const item = (x, m) => { const r = { c: x.cat, n: x.nome, d: x.desc || '' }; if (comFotos && x.imgs.length) r.g = x.imgs; if (m === 'f') r.f = FAIXAS.map(f => faixaV(x, f)); else r.v = x.valor || 0; return r; };
-  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))) };
+  const item = (x, m) => { const r = { id: x.id, c: x.cat, n: x.nome, d: x.desc || '' }; if (comFotos && x.imgs.length) r.g = x.imgs; if (m === 'f') r.f = FAIXAS.map(f => faixaV(x, f)); else r.v = x.valor || 0; return r; };
+  const prod = a => { const r = { id: a.id, n: a.nome, d: a.desc || '', v: a.preco || 0, e: saldoArte(a) > 0 }; if (comFotos && (a.imgs || []).length) r.g = a.imgs; return r; };
+  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod) };
 }
 async function htmlCardapio() {
   const [h, j, c] = await Promise.all(['cardapio.html', 'cardapio.js', 'style.css'].map(u => fetch(u).then(r => r.text())));
   const dados = JSON.stringify(dadosCardapio(true)).replace(/</g, '\\u003c');
-  const html = h.replace('<link rel="stylesheet" href="style.css">', () => '<style>' + c + '</style>').replace('<script src="cardapio.js"></' + 'script>', () => '<script>window.__D=' + dados + ';</' + 'script><script>' + j + '</' + 'script>');
+  const html = h.replace('<script src="config.js"></' + 'script>', '').replace('<link rel="stylesheet" href="style.css">', () => '<style>' + c + '</style>').replace('<script src="cardapio.js"></' + 'script>', () => '<script>window.__D=' + dados + ';</' + 'script><script>' + j + '</' + 'script>');
   return new Blob([html], { type: 'text/html' });
 }
 async function baixarCardapio() {
@@ -406,16 +409,26 @@ async function previaCardapio() {
 }
 function gerarCardapio() {
   if (!db.config.whats) { toast('Informe o WhatsApp em Configurações'); return ir('config'); }
-  const dados = dadosCardapio(false);
-  if (!dados.i.length) return toast('Cadastre itens no catálogo antes');
-  const link = new URL('cardapio.html', location.href).href.split('#')[0] + '#d=' + b64(dados);
-  sheet('Cardápio para clientes', `<p><b>Link</b> (leve, com nomes, descrições e preços; sem fotos):</p><div class="linkbox">${esc(link)}</div>
-    <button class="btn full" id="lcp">Copiar link</button><button class="btn wa full" id="lsh">Enviar link por WhatsApp</button><button class="btn sec full" id="lpv">Pré-visualizar (com fotos)</button>
-    <p style="margin-top:16px"><b>Arquivo com fotos:</b> baixe e envie o arquivo pelo WhatsApp; o cliente abre no celular.</p><button class="btn sec full" id="lfx">⬇️ Baixar cardápio com fotos</button>`, () => {
+  if (!db.catalogo.length) return toast('Cadastre itens no catálogo antes');
+  const link = new URL('cardapio.html', location.href).href.split('#')[0];
+  sheet('Link de festas', `<p>Este é o link fixo do cardápio de festas (brinquedos, oficinas e pacotes). O cliente escolhe os itens e o pedido chega em <b>Início › Pedidos do cardápio</b>. O que você muda no catálogo aparece na hora, sem gerar outro link.</p><div class="linkbox">${esc(link)}</div>
+    <button class="btn full" id="lcp">Copiar link</button><button class="btn wa full" id="lsh">Enviar link por WhatsApp</button><button class="btn sec full" id="lpv">Abrir a página</button>
+    <p style="margin-top:16px"><b>Arquivo com fotos</b> (para quem não abre links): baixe e envie o arquivo pelo WhatsApp.</p><button class="btn sec full" id="lfx">⬇️ Baixar cardápio com fotos</button>`, () => {
     $('#lcp').onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { prompt('Copie o link:', link); } };
     $('#lsh').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('Monte sua festa aqui: ' + link), '_blank');
-    $('#lpv').onclick = previaCardapio;
+    $('#lpv').onclick = () => window.open(link, '_blank');
     $('#lfx').onclick = baixarCardapio;
+  });
+}
+
+function gerarLoja() {
+  if (!db.artes.some(a => a.loja !== false)) { st.vt = 'artes'; ir('vendas'); return toast('Cadastre produtos em Vendas › Artes / produtos'); }
+  const link = new URL('loja.html', location.href).href.split('#')[0];
+  sheet('Link da loja de produtos', `<p>Envie este link para os clientes. Eles escolhem os produtos e o pedido chega em <b>Início › Pedidos</b>. Preços, fotos e produtos novos aparecem na hora.</p><div class="linkbox">${esc(link)}</div>
+    <button class="btn full" id="jcp">Copiar link</button><button class="btn wa full" id="jsh">Enviar link por WhatsApp</button><button class="btn sec full" id="jpv">Abrir a loja</button>`, () => {
+    $('#jcp').onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { prompt('Copie o link:', link); } };
+    $('#jsh').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('Veja nossos produtos e faça seu pedido: ' + link), '_blank');
+    $('#jpv').onclick = () => window.open(link, '_blank');
   });
 }
 
@@ -462,10 +475,13 @@ function viewConfig() {
   app.innerHTML = `<div class="card"><h3>Empresa</h3><label>Nome da empresa</label><input id="cfn" value="${esc(db.config.nome)}">
   <label>WhatsApp da empresa (com DDD) — recebe os pedidos do cardápio</label><input id="cfw" inputmode="tel" value="${esc(db.config.whats)}">
   <button class="btn full" id="cfs">Salvar</button></div>
-  <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam só neste aparelho. Faça backup com frequência.</p>
+  <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam salvos na nuvem e aparecem em qualquer aparelho onde você entrar. O backup é uma cópia extra.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
+  <div class="card"><h3>Conta</h3><div class="row"><span>Conectado como</span><b id="cfemail"></b></div><button class="btn sec full" id="sair">Sair desta conta</button></div>
   <div class="card"><h3>Sobre o app</h3><div class="row"><span>Versão</span><b>${VERSAO}</b></div><p class="s" style="color:var(--mut);margin:6px 0 0">Se alguma tela nova não aparecer, toque em atualizar. Seus dados não são apagados.</p><button class="btn sec full" id="atualizar">🔄 Atualizar o app</button></div>
   <div class="card"><h3>Zona de perigo</h3><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
+  sb.auth.getUser().then(({ data }) => { if ($('#cfemail')) $('#cfemail').textContent = data.user ? data.user.email : ''; });
+  $('#sair').onclick = sair;
   $('#atualizar').onclick = async () => {
     toast('Atualizando...');
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
