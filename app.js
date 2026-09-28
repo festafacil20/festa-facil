@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '15'; // manter igual ao número em sw.js (marizekids-v15)
+const VERSAO = '16'; // manter igual ao número em sw.js (marizekids-v16)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -480,7 +480,7 @@ function viewConfig() {
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
   <div class="card"><h3>Conta</h3><div class="row"><span>Conectado como</span><b id="cfemail"></b></div><button class="btn sec full" id="sair">Sair desta conta</button></div>
   <div class="card"><h3>Sobre o app</h3><div class="row"><span>Versão</span><b>${VERSAO}</b></div><p class="s" style="color:var(--mut);margin:6px 0 0">Se alguma tela nova não aparecer, toque em atualizar. Seus dados não são apagados.</p><button class="btn sec full" id="atualizar">🔄 Atualizar o app</button></div>
-  <div class="card"><h3>Zona de perigo</h3><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
+  <div class="card"><h3>Zona de perigo</h3><p class="s" style="color:var(--mut);margin-top:0">Apaga tudo na nuvem e em todos os aparelhos.</p><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
   sb.auth.getUser().then(({ data }) => { if ($('#cfemail')) $('#cfemail').textContent = data.user ? data.user.email : ''; });
   $('#sair').onclick = sair;
   $('#atualizar').onclick = async () => {
@@ -494,5 +494,10 @@ function viewConfig() {
   $('#bf').onchange = async e => {
     try { const j = JSON.parse(await e.target.files[0].text()); if (!Array.isArray(j.eventos) || !j.config) throw 0; if (!confirm('Substituir todos os dados atuais pelo backup?')) return; db = Object.assign(vazio(), j); migrar(); save(); toast('Backup importado'); ir('dashboard'); } catch { toast('Arquivo inválido'); }
   };
-  $('#apagar').onclick = () => { if (confirm('Apagar TODOS os dados? Isso não pode ser desfeito.') && confirm('Tem certeza? Exporte um backup antes se precisar.')) { db = vazio(); save(); ir('dashboard'); toast('Dados apagados'); } };
+  $('#apagar').onclick = () => {
+    const r = prompt('ATENÇÃO: isto apaga TODOS os dados (estoque, compras, vendas, clientes, caixa) na nuvem e em TODOS os aparelhos.\n\nSe só quer atualizar o app, use o botão "Atualizar o app".\n\nPara apagar mesmo, digite APAGAR:');
+    if (r === null) return;
+    if (r.trim().toUpperCase() !== 'APAGAR') return toast('Nada foi apagado');
+    db = vazio(); save(); ir('dashboard'); toast('Dados apagados');
+  };
 }
