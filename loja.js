@@ -84,7 +84,7 @@ function dados(erro) {
 
 function textoWhats() {
   const receb = S.receber === 'entrega' ? `Entrega: ${S.end} - ${S.cidade}` : 'Vou retirar';
-  return `Olá! Quero fazer um pedido 🛍️\n\nNome: ${S.nome}\nTelefone: ${S.tel}\nPagamento: ${FORMAS[S.forma] || ''}\n${receb}${S.obs ? '\nObs.: ' + S.obs : ''}\n\n` +
+  return `Olá! Quero fazer um pedido 🛍️\n\nNome: ${S.nome}\nTelefone: ${S.tel}\nPagamento: ${FORMAS[S.forma] || ''}${S.forma === 'pix' && d.pix && d.pix.k ? ' (vou enviar o comprovante)' : ''}\n${receb}${S.obs ? '\nObs.: ' + S.obs : ''}\n\n` +
     itens().map(i => `• ${i.q}× ${i.x.n} - ${brl(i.x.v * i.q)}`).join('\n') + (taxa() ? `\nTaxa de entrega: ${brl(taxa())}` : '') + `\n\nTotal: ${brl(total())}`;
 }
 function linkWhats() { let n = String(d.w || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n; return `https://wa.me/${n}?text=${encodeURIComponent(textoWhats())}`; }
@@ -102,8 +102,20 @@ async function enviar() {
     return;
   }
   $('.bar').hidden = true;
-  $('#lista').innerHTML = `<div class="card hero"><h2>🎉 Pedido enviado!</h2><p>Recebemos o seu pedido e vamos entrar em contato pelo telefone ${esc(S.tel)} para confirmar o pagamento (${esc(FORMAS[S.forma])}) e ${S.receber === 'entrega' ? 'a entrega' : 'a retirada'}.</p><p style="margin-top:8px"><b>Total: ${brl(total())}</b>${taxa() ? ` (com ${brl(taxa())} de entrega)` : ''}</p></div>
-  ${d.w ? '<button class="btn wa full" id="zap">Falar agora pelo WhatsApp</button>' : ''}<button class="btn sec full" id="outro">Fazer outro pedido</button>`;
+  const pix = S.forma === 'pix' && d.pix && d.pix.k ? pixPayload({ chave: d.pix.k, nome: d.pix.n || d.n, cidade: d.pix.c, valor: total() }) : '';
+  let qr = '';
+  if (pix && typeof qrcode === 'function') { try { const q = qrcode(0, 'M'); q.addData(pix); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 2 }); } catch {} }
+  $('#lista').innerHTML = `<div class="card hero"><h2>🎉 Pedido recebido!</h2><p>Total: <b>${brl(total())}</b>${taxa() ? ` (com ${brl(taxa())} de entrega)` : ''} · ${esc(FORMAS[S.forma])} · ${S.receber === 'entrega' ? 'entrega em ' + esc(S.cidade) : 'retirada'}</p></div>
+  ${pix ? `<div class="card"><h3>💠 Pague com Pix</h3>
+    <div class="s" style="color:var(--mut)">Valor: <b>${brl(total())}</b>${d.pix.n ? ` · Favorecido: <b>${esc(d.pix.n)}</b>` : ''}</div>
+    ${qr ? `<div class="pixqr">${qr}</div>` : ''}
+    <div class="s" style="margin:6px 0 4px">Pix Copia e Cola:</div><div class="pixcod" id="pixcod">${esc(pix)}</div>
+    <button class="btn full" id="pixcp">📋 Copiar código Pix</button>
+    <div class="s" style="color:var(--mut);margin-top:6px">No app do seu banco, escolha <b>Pix › Copia e Cola</b> e cole o código. Depois envie o pedido abaixo.</div></div>` : ''}
+  ${d.w ? `<button class="btn wa full" id="zap" style="font-size:1.05rem;padding:14px">📲 ENVIAR PEDIDO PARA LOJA</button>
+  <div class="s" style="color:var(--mut);text-align:center;margin-top:6px">Abre o WhatsApp da loja com o seu pedido pronto. É só tocar em enviar.</div>` : ''}
+  <button class="btn sec full" id="outro">Fazer outro pedido</button>`;
+  if (pix) $('#pixcp').onclick = async () => { try { await navigator.clipboard.writeText(pix); $('#pixcp').textContent = '✅ Código copiado!'; } catch { prompt('Copie o código Pix:', pix); } };
   if (d.w) $('#zap').onclick = () => location.href = linkWhats();
   $('#outro').onclick = () => { S.q = {}; S.obs = ''; vitrine(); };
   window.scrollTo(0, 0);

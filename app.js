@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '17'; // manter igual ao número em sw.js (marizekids-v17)
+const VERSAO = '18'; // manter igual ao número em sw.js (marizekids-v18)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -394,7 +394,7 @@ function b64(obj) { return btoa(String.fromCharCode(...new TextEncoder().encode(
 function dadosCardapio(comFotos) {
   const item = (x, m) => { const r = { id: x.id, c: x.cat, n: x.nome, d: x.desc || '' }; if (comFotos && x.imgs.length) r.g = x.imgs; if (m === 'f') r.f = FAIXAS.map(f => faixaV(x, f)); else r.v = x.valor || 0; return r; };
   const prod = a => { const r = { id: a.id, n: a.nome, d: a.desc || '', v: a.preco || 0, e: saldoArte(a) > 0 }; if (comFotos && (a.imgs || []).length) r.g = a.imgs; return r; };
-  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod) };
+  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod), pix: db.config.pixChave ? { k: pixChave(db.config.pixChave, db.config.pixTipo), n: db.config.pixNome || '', c: db.config.pixCidade || '' } : null };
 }
 async function htmlCardapio() {
   const [h, j, c] = await Promise.all(['cardapio.html', 'cardapio.js', 'style.css'].map(u => fetch(u).then(r => r.text())));
@@ -474,7 +474,12 @@ function formLanc(l) {
 /* ===== Configurações ===== */
 function viewConfig() {
   app.innerHTML = `<div class="card"><h3>Empresa</h3><label>Nome da empresa</label><input id="cfn" value="${esc(db.config.nome)}">
-  <label>WhatsApp da empresa (com DDD) — recebe os pedidos do cardápio</label><input id="cfw" inputmode="tel" value="${esc(db.config.whats)}">
+  <label>WhatsApp da empresa (com DDD) — recebe os pedidos da loja e do cardápio</label><input id="cfw" inputmode="tel" value="${esc(db.config.whats)}">
+  <h3 style="margin:18px 0 0">Pix (aparece para o cliente que escolher Pix na loja)</h3>
+  <label>Tipo da chave</label><select id="cpt">${[['cel', 'Celular'], ['doc', 'CPF / CNPJ'], ['email', 'E-mail'], ['aleat', 'Chave aleatória']].map(([k, t]) => `<option value="${k}" ${(db.config.pixTipo || 'cel') === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
+  <label>Chave Pix</label><input id="cpk" value="${esc(db.config.pixChave || '')}" placeholder="Deixe em branco para não mostrar Pix">
+  <label>Nome do titular da conta</label><input id="cpn" value="${esc(db.config.pixNome || '')}">
+  <label>Cidade do titular</label><input id="cpc" value="${esc(db.config.pixCidade || '')}" placeholder="Ex.: Itaporã">
   <button class="btn full" id="cfs">Salvar</button></div>
   <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam salvos na nuvem e aparecem em qualquer aparelho onde você entrar. O backup é uma cópia extra.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
@@ -488,7 +493,7 @@ function viewConfig() {
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
     location.reload();
   };
-  $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Marize Kids'; db.config.whats = $('#cfw').value.trim(); save(); toast('Salvo'); };
+  $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Marize Kids'; db.config.whats = $('#cfw').value.trim(); Object.assign(db.config, { pixTipo: $('#cpt').value, pixChave: $('#cpk').value.trim(), pixNome: $('#cpn').value.trim(), pixCidade: $('#cpc').value.trim() }); save(); toast('Salvo'); };
   $('#bx').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' })); a.download = `marizekids-backup-${hoje()}.json`; a.click(); };
   $('#bi').onclick = () => $('#bf').click();
   $('#bf').onchange = async e => {
