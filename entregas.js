@@ -32,7 +32,7 @@ function msgEtapa(p) {
   return t + (e === 'entregue' || e === 'cancelado' ? '' : cobra);
 }
 const zapEtapa = () => db.config.zapEtapa !== false;
-function avisarEtapa(p, nova) { if (zapEtapa() && nova !== 'novo') window.open(wa(p.tel, msgEtapa({ ...p, dados: { ...p.dados, etapa: nova } })), '_blank'); }
+function avisarEtapa(p, nova) { if (zapEtapa() && nova !== 'novo') abrirWa(p.tel, msgEtapa({ ...p, dados: { ...p.dados, etapa: nova } })); }
 const vendaDoPedido = p => p.dados.vendaId && by(db.vendas, p.dados.vendaId);
 async function gravarPedido(p, extra = {}) {
   const { error } = await sb.from('pedidos').update({ dados: p.dados, ...extra }).eq('id', p.id);
@@ -106,7 +106,7 @@ async function viewPedidos() {
   app.querySelectorAll('[data-ped]').forEach(c => c.onclick = e => { if (!e.target.closest('button')) formPedido(achar(c.dataset.ped)); });
   $('#pzap').onchange = () => { db.config.zapEtapa = $('#pzap').checked; save(); };
   app.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => { const p = achar(b.dataset.av); b.disabled = true; avisarEtapa(p, proxima(p)[0]); if (await mudarEtapa(p, proxima(p)[0])) viewPedidos(); else b.disabled = false; });
-  app.querySelectorAll('[data-zap]').forEach(b => b.onclick = () => { const p = achar(b.dataset.zap); window.open(wa(p.tel, msgEtapa(p)), '_blank'); });
+  app.querySelectorAll('[data-zap]').forEach(b => b.onclick = () => { const p = achar(b.dataset.zap); abrirWa(p.tel, msgEtapa(p)); });
   $('#pnovo').onclick = () => formNovoPedido();
   $('#plinkp').onclick = gerarLoja; $('#plinkf').onclick = gerarCardapio;
 }
@@ -142,7 +142,7 @@ function formPedidoProd(p) {
     const etapa = async nova => { if (await mudarEtapa(p, nova) && !$('#vsave')) volta(); };
     if ($('#pav')) $('#pav').onclick = () => { avisarEtapa(p, nx[0]); etapa(nx[0]); };
     $('#pet').onchange = () => { avisarEtapa(p, $('#pet').value); etapa($('#pet').value); };
-    $('#pwa').onclick = () => window.open(wa(p.tel, msgEtapa(p)), '_blank');
+    $('#pwa').onclick = () => abrirWa(p.tel, msgEtapa(p));
     if ($('#pconv')) $('#pconv').onclick = () => registrarVendaPedido(p);
     if ($('#pvv')) $('#pvv').onclick = () => formVenda(venda);
     $('#pdel').onclick = async () => {

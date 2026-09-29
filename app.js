@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '25'; // manter igual ao número em sw.js (marizekids-v25)
+const VERSAO = '26'; // manter igual ao número em sw.js (marizekids-v26)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -98,6 +98,16 @@ function sincronizaPagamentos(ev) {
   };
   um('sinal', ev.sinal || 0, ev.sinalForma, 'Sinal de evento', 'Sinal');
   um('resto', restoEvento(ev), ev.restoForma, 'Pagamento de evento', 'Restante');
+}
+// Abre o WhatsApp para falar com o cliente. No Android abre direto o WhatsApp Business (número da empresa),
+// a não ser que tenha sido desligado em Configurações neste aparelho.
+const W4B = 'festafacil.w4b', ehAndroid = /Android/i.test(navigator.userAgent);
+const usaBusiness = () => { try { return ehAndroid && localStorage.getItem(W4B) !== '0'; } catch { return ehAndroid; } };
+function abrirWa(tel, txt) {
+  const url = wa(tel, txt);
+  if (!usaBusiness()) return void window.open(url, '_blank');
+  let n = String(tel || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n;
+  location.href = `intent://send/?${n ? 'phone=' + n + '&' : ''}text=${encodeURIComponent(txt || '')}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(url)};end`;
 }
 function wa(tel, txt) {
   let n = String(tel || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n;
@@ -272,7 +282,7 @@ function formEvento(ev, data) {
       sincronizaPagamentos(o); save(); fechar(); st.dia = o.data; st.mes = new Date(o.data + 'T12:00'); render(); toast('Evento salvo');
     };
     if (!novo) {
-      $('#fwa').onclick = () => { const c = by(db.clientes, ev.clienteId); const o = ler(); window.open(wa(c && c.tel, `Olá ${c ? c.nome : ''}! Sobre a festa do dia ${fdata(o.data)} às ${o.hora}. Total: ${brl(totalEvento(o))}.`), '_blank'); };
+      $('#fwa').onclick = () => { const c = by(db.clientes, ev.clienteId); const o = ler(); abrirWa(c && c.tel, `Olá ${c ? c.nome : ''}! Sobre a festa do dia ${fdata(o.data)} às ${o.hora}. Total: ${brl(totalEvento(o))}.`); };
       $('#fdel').onclick = () => { if (!confirm('Excluir este evento?')) return; db.eventos = db.eventos.filter(e => e.id !== ev.id); db.lancamentos = db.lancamentos.filter(l => l.eventoId !== ev.id); save(); fechar(); render(); };
     }
   });
@@ -302,7 +312,7 @@ function formCliente(c) {
       if (novo) db.clientes.push(c); save(); fechar(); render(); toast('Cliente salvo');
     };
     if (!novo) {
-      $('#cwa').onclick = () => window.open(wa(c.tel), '_blank');
+      $('#cwa').onclick = () => abrirWa(c.tel);
       $('#cdel').onclick = () => { if (db.eventos.some(e => e.clienteId === c.id)) return toast('Cliente tem eventos; exclua-os antes'); if (!confirm('Excluir cliente?')) return; db.clientes = db.clientes.filter(x => x.id !== c.id); save(); fechar(); render(); };
     }
   });
@@ -418,7 +428,7 @@ function gerarCardapio() {
     <button class="btn full" id="lcp">Copiar link</button><button class="btn wa full" id="lsh">Enviar link por WhatsApp</button><button class="btn sec full" id="lpv">Abrir a página</button>
     <p style="margin-top:16px"><b>Arquivo com fotos</b> (para quem não abre links): baixe e envie o arquivo pelo WhatsApp.</p><button class="btn sec full" id="lfx">⬇️ Baixar cardápio com fotos</button>`, () => {
     $('#lcp').onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { prompt('Copie o link:', link); } };
-    $('#lsh').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('Monte sua festa aqui: ' + link), '_blank');
+    $('#lsh').onclick = () => abrirWa('', 'Monte sua festa aqui: ' + link);
     $('#lpv').onclick = () => window.open(link, '_blank');
     $('#lfx').onclick = baixarCardapio;
   });
@@ -432,7 +442,7 @@ function gerarLoja() {
     <p style="margin-top:16px"><b>Link para a bio do Instagram</b> (página com botão de comprar, WhatsApp e vitrine):</p><div class="linkbox">${esc(bio)}</div><button class="btn sec full" id="jbio">Copiar link da bio</button>`, () => {
     $('#jbio').onclick = async () => { try { await navigator.clipboard.writeText(bio); toast('Link da bio copiado'); } catch { prompt('Copie o link:', bio); } };
     $('#jcp').onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { prompt('Copie o link:', link); } };
-    $('#jsh').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('Veja nossos produtos e faça seu pedido: ' + link), '_blank');
+    $('#jsh').onclick = () => abrirWa('', 'Veja nossos produtos e faça seu pedido: ' + link);
     $('#jpv').onclick = () => window.open(link, '_blank');
   });
 }
@@ -485,6 +495,7 @@ function viewConfig() {
   <label>Nome do titular da conta</label><input id="cpn" value="${esc(db.config.pixNome || '')}">
   <label>Cidade do titular</label><input id="cpc" value="${esc(db.config.pixCidade || '')}" placeholder="Ex.: Itaporã">
   <button class="btn full" id="cfs">Salvar</button></div>
+  ${ehAndroid ? `<div class="card"><h3>💬 WhatsApp deste aparelho</h3><div class="chk" style="margin:0"><input type="checkbox" id="cfw4b" ${usaBusiness() ? 'checked' : ''}><label style="margin:0">Falar com clientes pelo <b>WhatsApp Business</b> (número da empresa)</label></div><p class="s" style="color:var(--mut);margin:6px 0 0">Desmarque se este celular não tiver o WhatsApp Business instalado.</p></div>` : ''}
   <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam salvos na nuvem e aparecem em qualquer aparelho onde você entrar. O backup é uma cópia extra.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
   <div class="card"><h3>Conta</h3><div class="row"><span>Conectado como</span><b id="cfemail"></b></div><button class="btn sec full" id="sair">Sair desta conta</button></div>
@@ -493,6 +504,7 @@ function viewConfig() {
   <div class="card"><h3>Zona de perigo</h3><p class="s" style="color:var(--mut);margin-top:0">Apaga tudo na nuvem e em todos os aparelhos.</p><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
   sb.auth.getUser().then(({ data }) => { if ($('#cfemail')) $('#cfemail').textContent = data.user ? data.user.email : ''; });
   $('#sair').onclick = sair;
+  if ($('#cfw4b')) $('#cfw4b').onchange = () => { try { localStorage.setItem(W4B, $('#cfw4b').checked ? '1' : '0'); } catch {} toast($('#cfw4b').checked ? 'Mensagens pelo WhatsApp Business' : 'Mensagens pelo WhatsApp normal'); };
   cardNotificacoes($('#cfgnotif'));
   $('#atualizar').onclick = async () => {
     toast('Atualizando...');

@@ -168,7 +168,7 @@ function formPedido(p) {
     <button class="btn wa full" id="pwa">Responder no WhatsApp</button>
     ${p.status === 'arquivado' ? '<button class="btn sec full" id="pdes">Desarquivar</button>' : '<button class="btn sec full" id="parq">Arquivar</button>'}
     <button class="btn del full" id="pdel">Excluir pedido</button>`, () => {
-    $('#pwa').onclick = () => window.open(wa(p.tel, prod ? `Olá ${p.nome}! Recebemos seu pedido 🛍️` : `Olá ${p.nome}! Recebemos seu pedido para a festa${d.data ? ' do dia ' + fdata(d.data) : ''} 🎉`), '_blank');
+    $('#pwa').onclick = () => abrirWa(p.tel, prod ? `Olá ${p.nome}! Recebemos seu pedido 🛍️` : `Olá ${p.nome}! Recebemos seu pedido para a festa${d.data ? ' do dia ' + fdata(d.data) : ''} 🎉`);
     if ($('#pmp')) $('#pmp').onclick = async () => { try { await navigator.clipboard.writeText(d.mpLink); toast('Link copiado'); } catch { prompt('Copie o link:', d.mpLink); } };
     $('#pconv').onclick = () => {
       const obs = `Pedido ${prod ? 'pela loja' : 'pelo cardápio'} em ${new Date(p.criado_em).toLocaleDateString('pt-BR')}`;
