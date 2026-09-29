@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '22'; // manter igual ao número em sw.js (marizekids-v22)
+const VERSAO = '23'; // manter igual ao número em sw.js (marizekids-v23)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -425,9 +425,11 @@ function gerarCardapio() {
 
 function gerarLoja() {
   if (!db.artes.some(a => a.loja !== false)) { st.vt = 'artes'; ir('vendas'); return toast('Cadastre produtos em Vendas › Artes / produtos'); }
-  const link = new URL('loja.html', location.href).href.split('#')[0];
+  const link = new URL('loja.html', location.href).href.split('#')[0], bio = new URL('bio.html', location.href).href.split('#')[0];
   sheet('Link da loja de produtos', `<p>Envie este link para os clientes. Eles escolhem os produtos e o pedido chega em <b>Início › Pedidos</b>. Preços, fotos e produtos novos aparecem na hora.</p><div class="linkbox">${esc(link)}</div>
-    <button class="btn full" id="jcp">Copiar link</button><button class="btn wa full" id="jsh">Enviar link por WhatsApp</button><button class="btn sec full" id="jpv">Abrir a loja</button>`, () => {
+    <button class="btn full" id="jcp">Copiar link</button><button class="btn wa full" id="jsh">Enviar link por WhatsApp</button><button class="btn sec full" id="jpv">Abrir a loja</button>
+    <p style="margin-top:16px"><b>Link para a bio do Instagram</b> (página com botão de comprar, WhatsApp e vitrine):</p><div class="linkbox">${esc(bio)}</div><button class="btn sec full" id="jbio">Copiar link da bio</button>`, () => {
+    $('#jbio').onclick = async () => { try { await navigator.clipboard.writeText(bio); toast('Link da bio copiado'); } catch { prompt('Copie o link:', bio); } };
     $('#jcp').onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { prompt('Copie o link:', link); } };
     $('#jsh').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('Veja nossos produtos e faça seu pedido: ' + link), '_blank');
     $('#jpv').onclick = () => window.open(link, '_blank');
