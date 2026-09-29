@@ -21,9 +21,17 @@ function proxima(p) { // [etapa seguinte, texto do botão]
 function msgEtapa(p) {
   const d = p.dados, e = etapaDe(p), nome = p.nome.split(' ')[0], loja = db.config.nome || 'Marize Kids';
   const cobra = !d.pago && e !== 'cancelado' ? `\n\nTotal: ${brl(d.total)}${d.forma ? ' (' + (FORMAS_ALL[d.forma] || d.forma) + ')' : ''}` : '';
+  if (e === 'preparo') { // confirmação do pedido: resumo completo (itens, pagamento e entrega)
+    const receb = retira(d) ? '🏠 *Retirada* - combinamos o horário por aqui' : `🚚 *Entrega* em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}`;
+    return `Olá ${nome}! Seu pedido na ${loja} está sendo preparado 🎨\n\n*Seu pedido:*\n`
+      + d.itens.map(i => `• ${i.q}× ${i.n} - ${brl(i.v * i.q)}`).join('\n')
+      + (d.taxa ? `\n• Taxa de entrega - ${brl(d.taxa)}` : '')
+      + `\n*Total: ${brl(d.total)}*\n\n💳 Pagamento: ${FORMAS_ALL[d.forma] || 'a combinar'}${d.pago ? ' (já recebido ✅)' : ''}\n${receb}`
+      + (d.obs ? `\n📝 Obs.: ${d.obs}` : '')
+      + `\n\nAvisamos por aqui quando estiver pronto 💜`;
+  }
   const t = {
     novo: `Olá ${nome}! Recebemos seu pedido na ${loja} 💜 Já já começamos a preparar.`,
-    preparo: `Olá ${nome}! Seu pedido na ${loja} está sendo preparado 🎨`,
     pronto: retira(d) ? `Olá ${nome}! Seu pedido está pronto para retirada 📦 Qual o melhor horário para você?` : `Olá ${nome}! Seu pedido está pronto e logo sai para entrega 📦`,
     rota: `Olá ${nome}! Seu pedido saiu para entrega 🚚 Em breve chega em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}.`,
     entregue: `Olá ${nome}! Obrigado pela compra na ${loja} 💜 Esperamos que goste!`,
