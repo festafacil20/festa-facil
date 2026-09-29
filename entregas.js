@@ -223,6 +223,13 @@ window.addEventListener('hashchange', () => { if (location.hash === '#pedidos' &
 /* ---- Notificações no celular (Web Push), ativadas em Configurações ---- */
 const b64u = s => Uint8Array.from(atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 async function inscricaoAtual() { try { const r = await navigator.serviceWorker.ready; return await r.pushManager.getSubscription(); } catch { return null; } }
+// No iPhone o push só existe com o app instalado na Tela de Início (iOS 16.4+)
+function semPushMsg() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent), instalado = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (ios && !instalado) return 'No iPhone, as notificações só funcionam com o app instalado: abra este site no <b>Safari</b>, toque em <b>Compartilhar</b> (quadrado com seta para cima) › <b>Adicionar à Tela de Início</b>, abra o app pelo ícone e volte aqui.';
+  if (ios) return 'Para receber notificações, atualize o iPhone para o iOS 16.4 ou mais recente (Ajustes › Geral › Atualização de Software).';
+  return 'Este navegador não aceita notificações. No celular, use o Chrome.';
+}
 async function cardNotificacoes(host) {
   if (!host) return;
   const suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -230,7 +237,7 @@ async function cardNotificacoes(host) {
   if (!host.isConnected) return;
   host.innerHTML = `<h3>🔔 Notificações de novo pedido</h3>
     <p class="s" style="color:var(--mut);margin-top:0">Receba um aviso no celular a cada pedido novo, mesmo com o app fechado. Ative em cada aparelho (o seu e o da sua equipe).</p>
-    ${!suporta ? '<div class="aviso">Este navegador não aceita notificações. No celular, use o Chrome.</div>'
+    ${!suporta ? `<div class="aviso">${semPushMsg()}</div>`
       : Notification.permission === 'denied' ? '<div class="aviso bad">As notificações foram bloqueadas neste aparelho. Libere em: Configurações do Chrome › Notificações (ou no cadeado ao lado do endereço) e volte aqui.</div>'
       : sub ? '<div class="aviso" style="background:#e7f7ec;border-color:var(--ok)">✅ Ativadas neste aparelho</div><button class="btn sec full" id="nteste">Enviar notificação de teste</button><button class="btn sec full" id="ndesl">Desativar neste aparelho</button>'
       : '<button class="btn full" id="nativ">🔔 Ativar notificações neste aparelho</button>'}`;
