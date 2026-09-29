@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '21'; // manter igual ao número em sw.js (marizekids-v21)
+const VERSAO = '22'; // manter igual ao número em sw.js (marizekids-v22)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -494,6 +494,7 @@ function viewConfig() {
   $('#atualizar').onclick = async () => {
     toast('Atualizando...');
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
+    try { await Promise.all(['./', 'index.html', 'app.js', 'estoque.js', 'vendas.js', 'relatorios.js', 'config.js', 'pix.js', 'nuvem.js', 'entregas.js', 'boot.js', 'style.css', 'sw.js'].map(f => fetch(f, { cache: 'reload' }))); } catch {}
     location.reload();
   };
   $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Marize Kids'; db.config.whats = $('#cfw').value.trim(); Object.assign(db.config, { pixTipo: $('#cpt').value, pixChave: $('#cpk').value.trim(), pixNome: $('#cpn').value.trim(), pixCidade: $('#cpc').value.trim() }); save(); toast('Salvo'); };
