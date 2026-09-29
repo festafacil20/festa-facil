@@ -31,6 +31,8 @@ function msgEtapa(p) {
   }[e];
   return t + (e === 'entregue' || e === 'cancelado' ? '' : cobra);
 }
+const zapEtapa = () => db.config.zapEtapa !== false;
+function avisarEtapa(p, nova) { if (zapEtapa() && nova !== 'novo') window.open(wa(p.tel, msgEtapa({ ...p, dados: { ...p.dados, etapa: nova } })), '_blank'); }
 const vendaDoPedido = p => p.dados.vendaId && by(db.vendas, p.dados.vendaId);
 async function gravarPedido(p, extra = {}) {
   const { error } = await sb.from('pedidos').update({ dados: p.dados, ...extra }).eq('id', p.id);
@@ -94,6 +96,7 @@ async function viewPedidos() {
   };
   app.innerHTML = `<div class="grid3" style="margin-bottom:8px"><div class="kpi"><small>Novos</small><b>${conta('novo')}</b></div><div class="kpi"><small>Em preparo</small><b>${conta('preparo')}</b></div><div class="kpi"><small>Prontos</small><b>${conta('pronto')}</b></div></div>
   <div class="grid3" style="margin-bottom:12px"><div class="kpi"><small>Em rota</small><b>${conta('rota')}</b></div><div class="kpi"><small>Entregues</small><b class="pos">${conta('entregue')}</b></div><div class="kpi"><small>A receber</small><b class="${aReceber ? 'neg' : ''}">${brl(aReceber)}</b></div></div>
+  <div class="chk" style="margin:0 0 10px"><input type="checkbox" id="pzap" ${zapEtapa() ? 'checked' : ''}><label style="margin:0">📲 Ao mudar a etapa, abrir o WhatsApp do cliente com o aviso</label></div>
   <div class="chips">${FILTROS.map(([k, t]) => `<button data-pf="${k}" class="${f === k ? 'on' : ''}">${t}${k === 'ativos' ? ` (${ativos.length})` : ''}</button>`).join('')}</div>
   ${lista.map(cartao).join('') || '<div class="card vazio">Nenhum pedido aqui</div>'}
   <button class="btn full" id="pnovo">＋ Lançar pedido (WhatsApp / presencial)</button>
@@ -101,7 +104,8 @@ async function viewPedidos() {
   const achar = id => st.peds.find(p => p.id === id);
   app.querySelectorAll('[data-pf]').forEach(b => b.onclick = () => { st.pedFiltro = b.dataset.pf; viewPedidos(); });
   app.querySelectorAll('[data-ped]').forEach(c => c.onclick = e => { if (!e.target.closest('button')) formPedido(achar(c.dataset.ped)); });
-  app.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => { const p = achar(b.dataset.av); b.disabled = true; if (await mudarEtapa(p, proxima(p)[0])) viewPedidos(); else b.disabled = false; });
+  $('#pzap').onchange = () => { db.config.zapEtapa = $('#pzap').checked; save(); };
+  app.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => { const p = achar(b.dataset.av); b.disabled = true; avisarEtapa(p, proxima(p)[0]); if (await mudarEtapa(p, proxima(p)[0])) viewPedidos(); else b.disabled = false; });
   app.querySelectorAll('[data-zap]').forEach(b => b.onclick = () => { const p = achar(b.dataset.zap); window.open(wa(p.tel, msgEtapa(p)), '_blank'); });
   $('#pnovo').onclick = () => formNovoPedido();
   $('#plinkp').onclick = gerarLoja; $('#plinkf').onclick = gerarCardapio;
@@ -136,8 +140,8 @@ function formPedidoProd(p) {
     if ($('#pmp')) $('#pmp').onclick = async () => { try { await navigator.clipboard.writeText(d.mpLink); toast('Link copiado'); } catch { prompt('Copie o link:', d.mpLink); } };
     // Depois de mudar a etapa fecha o detalhe, a não ser que a tela de venda tenha sido aberta (entregue › registrar venda)
     const etapa = async nova => { if (await mudarEtapa(p, nova) && !$('#vsave')) volta(); };
-    if ($('#pav')) $('#pav').onclick = () => etapa(nx[0]);
-    $('#pet').onchange = () => etapa($('#pet').value);
+    if ($('#pav')) $('#pav').onclick = () => { avisarEtapa(p, nx[0]); etapa(nx[0]); };
+    $('#pet').onchange = () => { avisarEtapa(p, $('#pet').value); etapa($('#pet').value); };
     $('#pwa').onclick = () => window.open(wa(p.tel, msgEtapa(p)), '_blank');
     if ($('#pconv')) $('#pconv').onclick = () => registrarVendaPedido(p);
     if ($('#pvv')) $('#pvv').onclick = () => formVenda(venda);
@@ -194,4 +198,55 @@ function formNovoPedido() {
       if (rota === 'pedidos') viewPedidos(); else ir('pedidos');
     };
   });
+}
+
+/* ---- Aviso de pedido novo dentro do app (a cada 30 s com o app aberto) ---- */
+const UK = 'festafacil.ultped';
+function bip() { try { const c = new (window.AudioContext || window.webkitAudioContext)(); [0, 0.18].forEach(t => { const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; o.connect(g); g.connect(c.destination); g.gain.setValueAtTime(0.25, c.currentTime + t); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + t + 0.15); o.start(c.currentTime + t); o.stop(c.currentTime + t + 0.16); }); } catch {} }
+async function vigiarPedidos() {
+  if (!logado || document.visibilityState !== 'visible') return;
+  const { data } = await sb.from('pedidos').select('id, nome, criado_em, dados').eq('status', 'novo').order('criado_em', { ascending: false }).limit(50);
+  if (!data) return;
+  const b = document.querySelector('#nav [data-r="pedidos"]');
+  if (b) { let s = b.querySelector('.navbadge'); if (!s) { s = document.createElement('span'); s.className = 'navbadge'; b.appendChild(s); } s.textContent = data.length; s.hidden = !data.length; }
+  let ult = ''; try { ult = localStorage.getItem(UK) || ''; } catch {}
+  const novos = data.filter(p => p.criado_em > ult && (p.dados || {}).origem !== 'manual');
+  if (data[0] && data[0].criado_em > ult) try { localStorage.setItem(UK, data[0].criado_em); } catch {}
+  if (!ult || !novos.length) return; // primeira vez neste aparelho: só marca onde parou
+  toast(novos.length > 1 ? `🛍️ ${novos.length} pedidos novos!` : `🛍️ Novo pedido de ${novos[0].nome}!`); bip(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  if (rota === 'pedidos' && $('#overlay').hidden) viewPedidos(); else if (rota === 'dashboard') contarPedidos($('#dpeds'));
+}
+setInterval(vigiarPedidos, 30000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') vigiarPedidos(); });
+window.addEventListener('hashchange', () => { if (location.hash === '#pedidos' && logado) ir('pedidos'); });
+
+/* ---- Notificações no celular (Web Push), ativadas em Configurações ---- */
+const b64u = s => Uint8Array.from(atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function inscricaoAtual() { try { const r = await navigator.serviceWorker.ready; return await r.pushManager.getSubscription(); } catch { return null; } }
+async function cardNotificacoes(host) {
+  if (!host) return;
+  const suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const sub = suporta && Notification.permission === 'granted' ? await inscricaoAtual() : null;
+  if (!host.isConnected) return;
+  host.innerHTML = `<h3>🔔 Notificações de novo pedido</h3>
+    <p class="s" style="color:var(--mut);margin-top:0">Receba um aviso no celular a cada pedido novo, mesmo com o app fechado. Ative em cada aparelho (o seu e o da sua equipe).</p>
+    ${!suporta ? '<div class="aviso">Este navegador não aceita notificações. No celular, use o Chrome.</div>'
+      : Notification.permission === 'denied' ? '<div class="aviso bad">As notificações foram bloqueadas neste aparelho. Libere em: Configurações do Chrome › Notificações (ou no cadeado ao lado do endereço) e volte aqui.</div>'
+      : sub ? '<div class="aviso" style="background:#e7f7ec;border-color:var(--ok)">✅ Ativadas neste aparelho</div><button class="btn sec full" id="nteste">Enviar notificação de teste</button><button class="btn sec full" id="ndesl">Desativar neste aparelho</button>'
+      : '<button class="btn full" id="nativ">🔔 Ativar notificações neste aparelho</button>'}`;
+  const teste = async s => { const { error } = await sb.functions.invoke('notificar-pedido', { body: { teste: s.endpoint } }); toast(error ? 'Não consegui enviar o teste (a função notificar-pedido está publicada?)' : 'Teste enviado: a notificação chega em alguns segundos'); };
+  if ($('#nativ')) $('#nativ').onclick = async () => {
+    if (await Notification.requestPermission() !== 'granted') return cardNotificacoes(host);
+    try {
+      const r = await navigator.serviceWorker.ready;
+      const s = await r.pushManager.getSubscription() || await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUBLICA) });
+      const j = s.toJSON();
+      const { error } = await sb.from('push_subs').upsert({ endpoint: j.endpoint, sub: j, aparelho: navigator.userAgent.slice(0, 150) });
+      if (error) throw error;
+      toast('Notificações ativadas'); await teste(s);
+    } catch (e) { console.warn(e); toast('Não foi possível ativar (sem internet?)'); }
+    cardNotificacoes(host);
+  };
+  if ($('#nteste')) $('#nteste').onclick = () => teste(sub);
+  if ($('#ndesl')) $('#ndesl').onclick = async () => { await sb.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); toast('Notificações desativadas neste aparelho'); cardNotificacoes(host); };
 }

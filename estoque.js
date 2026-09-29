@@ -10,7 +10,8 @@ const rn = n => (Math.round(n * 100) / 100).toLocaleString('pt-BR');
 const nStr = n => String(+n.toFixed(3));
 function fmtQtd(q, un) { const u = UNS[un] || UNS.un; return rn(q / u.k) + ' ' + (UNS[un] ? un : 'un'); }
 const saldoProd = p => db.movs.filter(m => m.produtoId === p.id).reduce((s, m) => s + m.qtd, 0);
-function custoUn(p) { // custo por unidade base (ml, g ou un)
+function custoUn(p, prof = 0) { // custo por unidade base (ml, g ou un)
+  if ((p.receita || []).length && prof < 5) return p.receita.reduce((s, c) => { const x = by(db.produtos, c.produtoId); return s + (x ? custoUn(x, prof + 1) * c.qtd : 0); }, 0) / (UNS[p.un] || UNS.un).k;
   const cs = db.compras.filter(c => c.produtoId === p.id), q = cs.reduce((s, c) => s + c.qtdBase, 0);
   return q ? cs.reduce((s, c) => s + c.valor, 0) / q : 0;
 }
@@ -102,9 +103,10 @@ function viewEstoque() {
     ${st.pcat ? '<button class="btn sec sm" id="edPcat" style="margin-bottom:10px">✎ Editar categoria</button>' : ''}
     <div class="card">${lista.map(p => {
       const s = saldoProd(p), cu = custoUn(p), pc = by(db.pcats, p.cat);
-      return `<div class="row" data-p="${p.id}"><div><div class="t">${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * UNS[p.un].k) + '/' + p.un : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
+      return `<div class="row" data-p="${p.id}"><div><div class="t">${(p.receita || []).length ? '🔨 ' : ''}${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * UNS[p.un].k) + '/' + p.un : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
     }).join('') || '<div class="vazio">Nenhum produto cadastrado</div>'}</div>
-    <div style="display:flex;gap:8px"><button class="btn full" id="bcompra">🛒 Lançar compra</button><button class="btn sec full" id="bbaixa">➖ Dar baixa</button></div>`;
+    <div style="display:flex;gap:8px"><button class="btn full" id="bcompra">🛒 Lançar compra</button><button class="btn sec full" id="bbaixa">➖ Dar baixa</button></div>
+    ${db.produtos.some(p => (p.receita || []).length) ? '<button class="btn sec full" id="bproduzir">🔨 Registrar produção</button>' : ''}`;
   } else if (st.et === 'kits') {
     corpo = `<div class="card">${db.kits.map(k => `<div class="row" data-k="${k.id}"><div style="flex:1"><div class="t">${esc(k.nome)}</div><div class="s">${esc(txtComp(k.itens)) || 'sem produtos'}</div><div class="s">Custo ≈ ${brl(custoComp(k.itens))} · dá para ${quantosDa(k.itens)} kit(s) com o estoque atual${k.vinculo ? ' · ligado ao catálogo' : ''}${(by(db.artes, k.arteId) || {}).loja === true ? ' · 🛍️ na loja' : ''}</div></div>›</div>`).join('') || '<div class="vazio">Nenhum kit. Um kit é uma lista de produtos que você usa junto (ex.: kit oficina de slime).</div>'}</div>
     <button class="btn full" id="bkit">＋ Novo kit</button>${db.kits.length ? '<button class="btn sec full" id="bbkit">➖ Dar baixa de um kit</button>' : ''}`;
@@ -132,6 +134,7 @@ function viewEstoque() {
   const ec = $('#edPcat'); if (ec) ec.onclick = () => formPcat(by(db.pcats, st.pcat));
   const bc = $('#bcompra'); if (bc) bc.onclick = () => formCompra();
   const bb = $('#bbaixa'); if (bb) bb.onclick = () => formBaixa();
+  const bpz = $('#bproduzir'); if (bpz) bpz.onclick = () => formProduzirItem();
   const bk = $('#bkit'); if (bk) bk.onclick = () => formKit();
   const bbk = $('#bbkit'); if (bbk) bbk.onclick = () => formBaixaKit();
   const bi = $('#bimport'); if (bi) bi.onclick = () => formImportarCompras();
@@ -263,20 +266,33 @@ function formProduto(p, opts) {
     <label>Embalagem que eu compro (nome)</label><input id="pe" value="${esc(p.emb)}" placeholder="Ex.: galão, pacote, caixa">
     <label>Quanto vem em cada embalagem</label><div class="par"><input id="pcont" inputmode="decimal"><select id="pcu"></select></div>
     <label>Avisar quando o estoque chegar em</label><div class="par"><input id="pmin" inputmode="decimal"><select id="pmu"></select></div>
+    <div class="card" style="background:#f3f0fa;margin:14px 0 0"><div class="chk" style="margin:0"><input type="checkbox" id="pprod" ${(p.receita || []).length ? 'checked' : ''}><label style="margin:0"><b>🔨 Eu produzo este item</b></label></div>
+      <div id="pprodbox" ${(p.receita || []).length ? '' : 'hidden'}>
+        <div class="s" style="color:var(--mut);margin-top:6px">Materiais usados para fazer <b>1 <span id="pruni"></span></b>. Ao registrar a produção, eles saem do estoque. Este item pode entrar em kits e em receitas de outros produtos.</div>
+        <div id="precomp"></div><button class="btn sec sm" id="pradd" type="button" style="margin-top:8px">＋ Adicionar material</button>
+        <div class="s" id="prcusto" style="margin-top:8px;color:var(--mut)"></div>
+      </div></div>
     ${novo && !opts.entao ? '<label>Já tenho em estoque (saldo inicial)</label><div class="par"><input id="pini" inputmode="decimal" placeholder="0"><select id="piu"></select></div><div class="s" style="color:var(--mut)">Isso não registra quanto você pagou. Para lançar o valor, a forma de pagamento e parcelar, use "Lançar compra" depois de salvar.</div>' : ''}
     <button class="btn full" id="psave">${opts.entao === 'compra' ? 'Continuar para lançar a compra' : opts.entao === 'baixa' ? 'Continuar para dar baixa' : 'Salvar'}</button>
-    ${novo ? '' : '<button class="btn sec full" id="pcompra">🛒 Lançar compra</button><button class="btn sec full" id="pbaixa">➖ Dar baixa</button><button class="btn del full" id="pdel">Excluir produto</button>'}`, () => {
+    ${novo ? '' : ((p.receita || []).length ? '<button class="btn sec full" id="pproduzir">🔨 Registrar produção</button>' : '') + '<button class="btn sec full" id="pcompra">🛒 Lançar compra</button><button class="btn sec full" id="pbaixa">➖ Dar baixa</button><button class="btn del full" id="pdel">Excluir produto</button>'}`, () => {
     const un = () => $('#pu').value;
     const monta = () => {
       const u = un(), base = baseDe(u);
       [['#pcont', '#pcu', p.conteudo], ['#pmin', '#pmu', p.minimo]].forEach(([i, s, q]) => { $(s).innerHTML = optsUn(base, u); if (q && !$(i).value) $(i).value = nStr(q / UNS[u].k); });
       const pi = $('#piu'); if (pi) pi.innerHTML = optsUn(base, u);
     };
-    monta(); $('#pu').onchange = () => { $('#pcont').value = ''; $('#pmin').value = ''; monta(); };
+    const receita = (p.receita || []).map(c => ({ ...c })), edr = editorComp($('#precomp'), receita);
+    const rc = () => { edr.le(); $('#pruni').textContent = un() === 'un' ? 'unidade' : un(); const c = custoComp(receita.filter(x => x.produtoId !== p.id)); $('#prcusto').textContent = c ? `Custo dos materiais: ${brl(c)} por ${un() === 'un' ? 'unidade' : un()}` : ''; };
+    monta(); $('#pu').onchange = () => { $('#pcont').value = ''; $('#pmin').value = ''; monta(); rc(); };
+    $('#pprodbox').addEventListener('input', rc); $('#pprodbox').addEventListener('change', rc); rc();
+    $('#pprod').onchange = () => { $('#pprodbox').hidden = !$('#pprod').checked; if ($('#pprod').checked && !receita.length) { edr.adicionar(); rc(); } };
+    $('#pradd').onclick = () => { edr.adicionar(); rc(); };
     const base = (i, s) => num($(i).value) * UNS[$(s).value].k;
     $('#psave').onclick = () => {
       const n = $('#pn').value.trim(); if (!n) return toast('Informe o nome');
-      Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu') });
+      edr.le(); const rec = $('#pprod').checked ? receita.filter(c => c.qtd > 0 && c.produtoId !== p.id).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) : [];
+      if ($('#pprod').checked && !rec.length) return toast('Informe os materiais da receita (ou desmarque "Eu produzo")');
+      Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu'), receita: rec });
       if (novo) { db.produtos.push(p); const ini = $('#pini') ? base('#pini', '#piu') : 0; if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
       save();
       if (novo && opts.entao === 'compra') { fechar(); return formCompra(p.id); }
@@ -284,8 +300,8 @@ function formProduto(p, opts) {
       fechar(); render(); toast('Produto salvo');
     };
     if (!novo) {
-      $('#pcompra').onclick = () => formCompra(p.id); $('#pbaixa').onclick = () => formBaixa(p.id);
-      $('#pdel').onclick = () => { if (db.movs.some(m => m.produtoId === p.id) || db.compras.some(c => c.produtoId === p.id)) return toast('Produto tem histórico; não dá para excluir'); if (db.kits.some(k => k.itens.some(c => c.produtoId === p.id)) || db.artes.some(a => (a.receita || []).some(c => c.produtoId === p.id))) return toast('Produto está em um kit ou receita'); if (!confirm('Excluir produto?')) return; db.produtos = db.produtos.filter(x => x.id !== p.id); save(); fechar(); render(); };
+      $('#pcompra').onclick = () => formCompra(p.id); $('#pbaixa').onclick = () => formBaixa(p.id); if ($('#pproduzir')) $('#pproduzir').onclick = () => formProduzirItem(p.id);
+      $('#pdel').onclick = () => { if (db.movs.some(m => m.produtoId === p.id) || db.compras.some(c => c.produtoId === p.id)) return toast('Produto tem histórico; não dá para excluir'); if (db.kits.some(k => k.itens.some(c => c.produtoId === p.id)) || db.artes.some(a => (a.receita || []).some(c => c.produtoId === p.id)) || db.produtos.some(x => (x.receita || []).some(c => c.produtoId === p.id))) return toast('Produto está em um kit ou receita'); if (!confirm('Excluir produto?')) return; db.produtos = db.produtos.filter(x => x.id !== p.id); save(); fechar(); render(); };
     }
   });
 }
@@ -485,4 +501,34 @@ function desenhaKitsEvento(ev, box) {
     if (!confirm('Desfazer a baixa dos kits desta festa? O estoque volta ao que era.')) return;
     db.movs = db.movs.filter(m => m.lote !== ev.kitsLote); const e = by(db.eventos, ev.id); delete e.kitsLote; delete ev.kitsLote; save(); desenhaKitsEvento(ev, box); toast('Baixa desfeita');
   };
+}
+
+/* ---- Produção de itens do estoque (ex.: peça de gesso feita com gesso em pó) ---- */
+function formProduzirItem(prodId) {
+  const itens = db.produtos.filter(p => (p.receita || []).length);
+  if (!itens.length) return toast('Marque "Eu produzo este item" no cadastro do produto');
+  const p0 = by(itens, prodId) || itens[0];
+  sheet('Registrar produção', `
+    <label>O que você produziu</label><select id="zp">${itens.map(p => `<option value="${p.id}" ${p.id === p0.id ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select>
+    <label>Quantidade produzida <span id="zun"></span></label><input id="zq" inputmode="decimal" value="1">
+    <label>Data</label><input type="date" id="zd" value="${hoje()}">
+    <div id="zres" style="margin-top:10px"></div>
+    <button class="btn full" id="zsave">Registrar produção</button>`, b => {
+    const item = () => by(db.produtos, $('#zp').value), q = () => Math.max(0, num($('#zq').value));
+    const atual = () => {
+      const p = item(), n = q(), k = (UNS[p.un] || UNS.un).k;
+      $('#zun').textContent = '(' + (p.un === 'un' ? 'unidades' : p.un) + ')';
+      $('#zres').innerHTML = '<div class="s" style="color:var(--mut)">Sai do estoque:</div>' + p.receita.map(c => { const x = by(db.produtos, c.produtoId); return x ? `<div class="row"><span>${esc(x.nome)}</span><span>−${fmtQtd(c.qtd * n, x.un)} <small style="color:var(--mut)">(tem ${fmtQtd(saldoProd(x), x.un)})</small></span></div>` : ''; }).join('')
+        + `<div class="row"><span><b>Entra: ${esc(p.nome)}</b></span><b class="pos">+${fmtQtd(n * k, p.un)}</b></div><div class="s">Custo dos materiais: <b>${brl(custoComp(p.receita) * n)}</b></div>`;
+    };
+    b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
+    $('#zsave').onclick = () => {
+      const p = item(), n = q(), data = $('#zd').value || hoje(); if (!n) return toast('Informe a quantidade');
+      const f = faltasComp(p.receita, n);
+      if (f.length && !confirm('Material insuficiente:\n\n' + f.join('\n') + '\n\nRegistrar mesmo assim (ficará negativo)?')) return;
+      const lote = baixarComp(p.receita, n, { motivo: `Produção: ${nStr(n)}× ${p.nome}`, data });
+      db.movs.push({ id: uid(), produtoId: p.id, data, tipo: 'producao', qtd: n * (UNS[p.un] || UNS.un).k, motivo: 'Produção', lote });
+      save(); fechar(); st.et = 'produtos'; if (rota === 'estoque') render(); toast('Produção registrada');
+    };
+  });
 }

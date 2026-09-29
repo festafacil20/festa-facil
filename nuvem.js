@@ -111,7 +111,7 @@ function telaLogin(erro) {
 }
 async function entrar() {
   logado = true; $('#nav').hidden = false; $('#btnCfg').hidden = false;
-  ir('dashboard'); await puxar();
+  ir(location.hash === '#pedidos' ? 'pedidos' : 'dashboard'); await puxar(); vigiarPedidos();
 }
 async function sair() {
   if (nv.sujo && !confirm('Há alterações ainda não enviadas para a nuvem (sem internet?). Sair mesmo assim? Elas continuam neste aparelho.')) return;

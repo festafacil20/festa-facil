@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '20'; // manter igual ao número em sw.js (marizekids-v20)
+const VERSAO = '21'; // manter igual ao número em sw.js (marizekids-v21)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -485,10 +485,12 @@ function viewConfig() {
   <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam salvos na nuvem e aparecem em qualquer aparelho onde você entrar. O backup é uma cópia extra.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
   <div class="card"><h3>Conta</h3><div class="row"><span>Conectado como</span><b id="cfemail"></b></div><button class="btn sec full" id="sair">Sair desta conta</button></div>
+  <div class="card" id="cfgnotif"></div>
   <div class="card"><h3>Sobre o app</h3><div class="row"><span>Versão</span><b>${VERSAO}</b></div><p class="s" style="color:var(--mut);margin:6px 0 0">Se alguma tela nova não aparecer, toque em atualizar. Seus dados não são apagados.</p><button class="btn sec full" id="atualizar">🔄 Atualizar o app</button></div>
   <div class="card"><h3>Zona de perigo</h3><p class="s" style="color:var(--mut);margin-top:0">Apaga tudo na nuvem e em todos os aparelhos.</p><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
   sb.auth.getUser().then(({ data }) => { if ($('#cfemail')) $('#cfemail').textContent = data.user ? data.user.email : ''; });
   $('#sair').onclick = sair;
+  cardNotificacoes($('#cfgnotif'));
   $('#atualizar').onclick = async () => {
     toast('Atualizando...');
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
