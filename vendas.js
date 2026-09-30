@@ -5,6 +5,38 @@
 const kitDe = a => a && a.kitId && by(db.kits, a.kitId);
 const saldoArte = a => { const k = kitDe(a); return k ? quantosDa(k.itens) : db.pmovs.filter(m => m.arteId === a.id).reduce((s, m) => s + m.qtd, 0); };
 const custoArte = a => { const k = kitDe(a); return k ? custoComp(k.itens) : custoComp(a.receita || []) + (a.extra || 0); };
+// Adicionais (ofertas da loja, ex.: "+2 peças por R$ 2"): ficam em a.adicionais = [{ id, nome, preco, itens: [materiais] }].
+// Na venda viram itens { arteId, adId, q, preco } e dão baixa nos materiais do adicional.
+const adDe = (a, adId) => a && (a.adicionais || []).find(x => x.id === adId);
+const custoAd = ad => custoComp(ad.itens || []);
+const nomeItemVenda = i => { const a = by(db.artes, i.arteId), ad = i.adId && adDe(a, i.adId); return ad ? '➕ ' + ad.nome : a ? a.nome : '?'; };
+function baixarItemVenda(i, vendaId, data) {
+  const a = by(db.artes, i.arteId);
+  if (i.adId) { const ad = adDe(a, i.adId); if (ad && (ad.itens || []).length) baixarComp(ad.itens, i.q, { motivo: `Venda: ${i.q}× ${ad.nome}`, vendaId, data }); return; }
+  const k = kitDe(a);
+  if (k) baixarComp(k.itens, i.q, { motivo: `Venda: ${i.q}× ${k.nome}`, vendaId, data });
+  else db.pmovs.push({ id: uid(), arteId: i.arteId, data, tipo: 'venda', qtd: -i.q, vendaId });
+}
+// Editor de adicionais usado no cadastro de produto e de kit
+function editorAdicionais(host, ads) {
+  const eds = [];
+  const le = () => host.querySelectorAll('.adbox').forEach((box, i) => { ads[i].nome = box.querySelector('[data-an]').value.trim(); ads[i].preco = num(box.querySelector('[data-ap]').value); eds[i].le(); });
+  const desenha = () => {
+    host.innerHTML = ads.map((ad, i) => `<div class="adbox" data-i="${i}"><div class="par"><input data-an placeholder="Ex.: +2 peças para colorir" value="${esc(ad.nome)}"><input data-ap inputmode="decimal" placeholder="R$" value="${ad.preco ? String(ad.preco).replace('.', ',') : ''}" style="max-width:80px;flex:none"><button type="button" class="btn del sm" data-ax>✕</button></div>
+      <div class="s" style="color:var(--mut);margin-top:4px">Sai do estoque quando vender (opcional):</div><div data-ac></div><button type="button" class="btn sec sm" data-aadd style="margin-top:4px">＋ Material</button></div>`).join('')
+      + '<button type="button" class="btn sec sm" data-anovo>＋ Novo adicional</button>';
+    eds.length = 0;
+    host.querySelectorAll('.adbox').forEach((box, i) => { eds[i] = editorComp(box.querySelector('[data-ac]'), ads[i].itens); box.querySelector('[data-aadd]').onclick = () => { if (!db.produtos.length) return toast('Cadastre os materiais no Estoque'); eds[i].adicionar(); }; });
+  };
+  host.onclick = e => {
+    if (e.target.closest('[data-ax]')) { le(); ads.splice(+e.target.closest('.adbox').dataset.i, 1); desenha(); }
+    else if (e.target.closest('[data-anovo]')) { le(); ads.push({ id: uid(), nome: '', preco: 0, itens: [] }); desenha(); }
+  };
+  desenha();
+  return { valores: () => { le(); return ads.filter(x => x.nome && x.preco > 0).map(x => ({ id: x.id, nome: x.nome, preco: x.preco, itens: x.itens.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) })); } };
+}
+const copiaAds = a => ((a && a.adicionais) || []).map(x => ({ ...x, itens: (x.itens || []).map(c => ({ ...c })) }));
+const htmlAdicionais = id => `<label>➕ Adicionais (ofertas na loja)</label><div class="s" style="color:var(--mut);margin-bottom:6px">Aparecem para o cliente quando ele escolhe este produto. Ex.: "+2 peças para colorir" por R$ 2,00.</div><div id="${id}"></div>`;
 const totalVenda = v => Math.max(0, v.itens.reduce((s, i) => s + i.preco * i.q, 0) - (v.desconto || 0)) + (v.taxa || 0);
 const custoVenda = v => v.itens.reduce((s, i) => s + (i.custo || 0) * i.q, 0);
 const nomeCliVenda = v => { const c = v.clienteId && by(db.clientes, v.clienteId); return c ? c.nome : (v.nome || 'Consumidor'); };
@@ -19,7 +51,7 @@ function viewVendas() {
     const vendido = vs.reduce((s, v) => s + totalVenda(v), 0), custo = vs.reduce((s, v) => s + custoVenda(v), 0), areceber = db.vendas.filter(v => !v.pago).reduce((s, v) => s + totalVenda(v), 0);
     corpo = `<div class="mes"><button id="vp">‹</button><b>${MESES[m]} ${y}</b><button id="vn">›</button></div>
     <div class="grid3" style="margin-bottom:12px"><div class="kpi"><small>Vendido</small><b>${brl(vendido)}</b></div><div class="kpi"><small>Lucro</small><b class="${vendido - custo >= 0 ? 'pos' : 'neg'}">${brl(vendido - custo)}</b></div><div class="kpi"><small>A receber</small><b class="${areceber ? 'neg' : ''}">${brl(areceber)}</b></div></div>
-    <div class="card">${vs.map(v => `<div class="row" data-v="${v.id}"><div><div class="t">${esc(nomeCliVenda(v))}</div><div class="s">${fdata(v.data)} · ${esc(v.itens.map(i => { const a = by(db.artes, i.arteId); return i.q + '× ' + (a ? a.nome : '?'); }).join(', '))}</div></div><div style="text-align:right"><b>${brl(totalVenda(v))}</b><div><span class="badge ${v.pago ? 'ok' : 'bad'}">${v.pago ? 'recebido' : 'a receber'}</span></div></div></div>`).join('') || '<div class="vazio">Nenhuma venda neste mês</div>'}</div>
+    <div class="card">${vs.map(v => `<div class="row" data-v="${v.id}"><div><div class="t">${esc(nomeCliVenda(v))}</div><div class="s">${fdata(v.data)} · ${esc(v.itens.map(i => i.q + '× ' + nomeItemVenda(i)).join(', '))}</div></div><div style="text-align:right"><b>${brl(totalVenda(v))}</b><div><span class="badge ${v.pago ? 'ok' : 'bad'}">${v.pago ? 'recebido' : 'a receber'}</span></div></div></div>`).join('') || '<div class="vazio">Nenhuma venda neste mês</div>'}</div>
     <button class="btn full" id="bvenda">＋ Nova venda</button>`;
   } else {
     const hist = [...db.pmovs].sort((a, b) => (b.data + b.id).localeCompare(a.data + a.id)).slice(0, 15);
@@ -50,6 +82,7 @@ function formArte(a) {
     <label>Fotos (até 3)</label><div id="aimg" class="fotos"></div><input type="file" id="af" accept="image/*" multiple hidden><button class="btn sec sm" id="afb" type="button">📷 Adicionar fotos</button>
     <label>Preço de venda (R$)</label><input id="ap" inputmode="decimal" value="${a.preco || ''}">
     <button class="btn sec sm" id="apcalc" type="button" style="margin-top:6px">🏷️ Calcular preço</button><div id="apc"></div>
+    ${htmlAdicionais('aads')}
     <div class="chk"><input type="checkbox" id="aloja" ${a.loja === false ? '' : 'checked'}><label style="margin:0">Mostrar na loja online (link para clientes)</label></div>
     <label>Insumos usados em 1 unidade (receita) — opcional</label>
     <div id="acomp"></div>
@@ -63,7 +96,7 @@ function formArte(a) {
     pv(); $('#aimg').onclick = e => { const r = e.target.closest('[data-rm]'); if (r) { imgs.splice(+r.dataset.rm, 1); pv(); } };
     $('#afb').onclick = () => $('#af').click();
     $('#af').onchange = async e => { for (const f of e.target.files) { if (imgs.length >= 3) break; await new Promise(r => lerImagem(f, d => { imgs.push(d); r(); })); } e.target.value = ''; pv(); };
-    const ed = editorComp($('#acomp'), comp);
+    const ed = editorComp($('#acomp'), comp), eda = editorAdicionais($('#aads'), copiaAds(a));
     $('#apcalc').onclick = () => { ed.le(); $('#apcalc').hidden = true; calcPreco($('#apc'), { custo: custoComp(comp) + num($('#ax').value), preco: num($('#ap').value), nome: 'Custo da receita e outros custos já preenchidos', aberta: true, onUsar: v => { $('#ap').value = v.toFixed(2).replace('.', ','); $('#ap').dispatchEvent(new Event('input', { bubbles: true })); toast('Preço aplicado: ' + brl(v)); } }); };
     const custo = () => { ed.le(); const c = custoComp(comp) + num($('#ax').value); $('#acusto').textContent = c ? `Custo estimado por unidade: ${brl(c)}${num($('#ap').value) ? ' · lucro ≈ ' + brl(num($('#ap').value) - c) : ''}` : ''; };
     b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
@@ -74,7 +107,7 @@ function formArte(a) {
     $('#asave').onclick = () => {
       const n = $('#an').value.trim(); if (!n) return toast('Informe o nome');
       ed.le(); const bak = JSON.stringify(a);
-      Object.assign(a, { nome: n, desc: $('#ad').value.trim(), imgs: [...imgs], preco: num($('#ap').value), loja: $('#aloja').checked, extra: num($('#ax').value), receita: comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) });
+      Object.assign(a, { nome: n, desc: $('#ad').value.trim(), imgs: [...imgs], preco: num($('#ap').value), loja: $('#aloja').checked, adicionais: eda.valores(), extra: num($('#ax').value), receita: comp.filter(c => c.qtd > 0).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) });
       if (novo) db.artes.push(a);
       try { save(); } catch { if (novo) db.artes.pop(); else Object.assign(a, JSON.parse(bak)); return toast('Sem espaço: use menos fotos ou faça backup'); }
       fechar(); st.vt = 'artes'; render(); toast('Salvo');
@@ -132,13 +165,13 @@ function formVenda(v, pre) {
   if (!v && !db.artes.length) { toast('Cadastre as artes primeiro'); st.vt = 'artes'; return formArte(); }
   const novo = !v;
   v = v || { id: uid(), data: hoje(), clienteId: '', nome: '', itens: [], desconto: 0, forma: 'pix', parcelas: 1, primeira: hoje(), pago: true, obs: '', ...pre };
-  const antes = id => novo ? 0 : (v.itens.find(i => i.arteId === id) || { q: 0 }).q;
+  const antes = id => novo ? 0 : (v.itens.find(i => i.arteId === id && !i.adId) || { q: 0 }).q;
   sheet(novo ? 'Nova venda' : 'Venda', `
     <label>Data</label><input type="date" id="vd" value="${v.data}">
     <label>Cliente</label><select id="vc"><option value="">Consumidor (sem cadastro)</option>${db.clientes.map(c => `<option value="${c.id}" ${c.id === v.clienteId ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
     <input id="vn" placeholder="Nome (opcional)" value="${esc(v.nome)}" style="margin-top:6px">
     <label>Itens vendidos</label>
-    ${db.artes.map(a => { const it = v.itens.find(i => i.arteId === a.id); return `<div class="vrow" data-a="${a.id}"><div class="itemsel"><span>${esc(a.nome)}<br><small style="color:var(--mut)">estoque ${saldoArte(a)} · custo ${brl(custoArte(a))}</small></span><input type="number" min="0" inputmode="numeric" data-vq value="${it ? it.q : 0}" title="Quantidade"></div><div class="par"><input inputmode="decimal" data-vp value="${it ? it.preco : a.preco || ''}" placeholder="Preço unit."></div></div>`; }).join('')}
+    ${db.artes.map(a => { const it = v.itens.find(i => i.arteId === a.id && !i.adId); return `<div class="vrow" data-a="${a.id}"><div class="itemsel"><span>${esc(a.nome)}<br><small style="color:var(--mut)">estoque ${saldoArte(a)} · custo ${brl(custoArte(a))}</small></span><input type="number" min="0" inputmode="numeric" data-vq value="${it ? it.q : 0}" title="Quantidade"></div><div class="par"><input inputmode="decimal" data-vp value="${it ? it.preco : a.preco || ''}" placeholder="Preço unit."></div></div>` + (a.adicionais || []).map(ad => { const ia = v.itens.find(i => i.arteId === a.id && i.adId === ad.id); return `<div class="vrow" data-a="${a.id}" data-ad="${ad.id}"><div class="itemsel"><span>➕ ${esc(ad.nome)}<br><small style="color:var(--mut)">adicional de ${esc(a.nome)}</small></span><input type="number" min="0" inputmode="numeric" data-vq value="${ia ? ia.q : 0}"></div><div class="par"><input inputmode="decimal" data-vp value="${ia ? ia.preco : ad.preco}" placeholder="Preço unit."></div></div>`; }).join(''); }).join('')}
     <label>Desconto (R$)</label><input id="vdesc" inputmode="decimal" value="${v.desconto || ''}">
     <label>Taxa de entrega (R$)</label><input id="vtx" inputmode="decimal" value="${v.taxa || ''}">
     <div class="total" id="vtot"></div>
@@ -150,16 +183,16 @@ function formVenda(v, pre) {
     <label>Observações</label><textarea id="vo" rows="2">${esc(v.obs)}</textarea>
     <button class="btn full" id="vsave">Salvar venda</button>${novo ? '' : '<button class="btn del full" id="vdel">Excluir venda</button>'}`, b => {
     const ler = () => ({ ...v, data: $('#vd').value, clienteId: $('#vc').value, nome: $('#vn').value.trim(), desconto: num($('#vdesc').value), taxa: num($('#vtx').value), forma: $('#vf').value, parcelas: Math.max(1, Math.min(36, parseInt($('#vpa').value) || 1)), primeira: $('#vp1').value || $('#vd').value, pago: $('#vpg').checked, obs: $('#vo').value.trim(),
-      itens: [...b.querySelectorAll('.vrow')].map(r => { const a = by(db.artes, r.dataset.a), q = Math.max(0, parseInt(r.querySelector('[data-vq]').value) || 0), ant = v.itens.find(i => i.arteId === a.id); return { arteId: a.id, q, preco: num(r.querySelector('[data-vp]').value), custo: ant && ant.custo != null ? ant.custo : custoArte(a) }; }).filter(i => i.q > 0) });
+      itens: [...b.querySelectorAll('.vrow')].map(r => { const a = by(db.artes, r.dataset.a), adId = r.dataset.ad || '', ad = adId && adDe(a, adId), q = Math.max(0, parseInt(r.querySelector('[data-vq]').value) || 0), ant = v.itens.find(i => i.arteId === a.id && (i.adId || '') === adId); return { arteId: a.id, ...(adId ? { adId } : {}), q, preco: num(r.querySelector('[data-vp]').value), custo: ant && ant.custo != null ? ant.custo : ad ? custoAd(ad) : custoArte(a) }; }).filter(i => i.q > 0) });
     const atual = () => { const o = ler(), t = totalVenda(o), c = custoVenda(o); $('#vtot').innerHTML = 'Total: ' + brl(t) + (c ? `<div class="s" style="font-weight:400">Custo ${brl(c)} · Lucro <b class="${t - c >= 0 ? 'pos' : 'neg'}">${brl(t - c)}</b></div>` : ''); };
     b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
     $('#vsave').onclick = () => {
       const o = ler(); if (!o.data) return toast('Informe a data'); if (!o.itens.length) return toast('Marque a quantidade vendida de ao menos um item');
-      const falta = o.itens.filter(i => { const a = by(db.artes, i.arteId); return saldoArte(a) + antes(i.arteId) < i.q; }).map(i => { const a = by(db.artes, i.arteId); return `${a.nome}: vendendo ${i.q}, estoque ${saldoArte(a) + antes(i.arteId)}`; });
+      const falta = o.itens.filter(i => !i.adId).filter(i => { const a = by(db.artes, i.arteId); return saldoArte(a) + antes(i.arteId) < i.q; }).map(i => { const a = by(db.artes, i.arteId); return `${a.nome}: vendendo ${i.q}, estoque ${saldoArte(a) + antes(i.arteId)}`; });
       if (falta.length && !confirm('Estoque insuficiente:\n\n' + falta.join('\n') + '\n\nSalvar mesmo assim (o estoque ficará negativo)?')) return;
       db.pmovs = db.pmovs.filter(m => m.vendaId !== o.id); db.movs = db.movs.filter(m => m.vendaId !== o.id); db.lancamentos = db.lancamentos.filter(l => l.vendaId !== o.id);
       const existe = by(db.vendas, o.id); if (existe) Object.assign(existe, o); else db.vendas.push(o);
-      o.itens.forEach(i => { const k = kitDe(by(db.artes, i.arteId)); if (k) baixarComp(k.itens, i.q, { motivo: `Venda: ${i.q}× ${k.nome}`, vendaId: o.id, data: o.data }); else db.pmovs.push({ id: uid(), arteId: i.arteId, data: o.data, tipo: 'venda', qtd: -i.q, vendaId: o.id }); });
+      o.itens.forEach(i => baixarItemVenda(i, o.id, o.data));
       if (o.pago) {
         const total = totalVenda(o), pa = o.parcelas, cada = Math.floor(total / pa * 100) / 100;
         for (let k = 0; k < pa; k++) db.lancamentos.push({ id: uid(), tipo: 'r', valor: k === pa - 1 ? +(total - cada * (pa - 1)).toFixed(2) : cada, data: somaMeses(o.primeira, k), cat: 'Venda de produtos', desc: `Venda: ${nomeCliVenda(o)}${pa > 1 ? ` (${k + 1}/${pa})` : ''}`, forma: o.forma, vendaId: o.id, origem: 'venda' });

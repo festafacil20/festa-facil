@@ -52,7 +52,7 @@ function relDados() {
   R.compras = db.compras.filter(c => noP(c.data)).sort((a, b) => a.data.localeCompare(b.data));
   R.vendas = db.vendas.filter(v => noP(v.data)).sort((a, b) => a.data.localeCompare(b.data));
   R.vendaTotal = R.vendas.reduce((s, v) => s + totalVenda(v), 0); R.vendaCusto = R.vendas.reduce((s, v) => s + custoVenda(v), 0);
-  R.vendaArte = agrupa(R.vendas.flatMap(v => v.itens.map(i => ({ n: (by(db.artes, i.arteId) || { nome: '?' }).nome, v: i.preco * i.q }))), x => x.n, x => x.v);
+  R.vendaArte = agrupa(R.vendas.flatMap(v => v.itens.map(i => ({ n: nomeItemVenda(i), v: i.preco * i.q }))), x => x.n, x => x.v);
   R.artes = db.artes.map(a => { const s = saldoArte(a), c = custoArte(a); return { a, s, c, valor: Math.max(0, s) * c }; });
   return R;
 }

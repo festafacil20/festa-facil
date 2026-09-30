@@ -28,10 +28,13 @@ Deno.serve(async (req) => {
     const regra = ent.cidades.find((c: { nome: string }) => c.nome === cidade) as { nome: string; taxa: number; minimo: number } | undefined;
     if (receber === 'entrega' && (!regra || end.length < 5)) return resp({ erro: 'Informe a cidade e o endereço.' }, 400);
     const produtos = new Map((vit.data.p || []).map((p: { id: string }) => [p.id, p]));
+    // adicionais: "ad:<produto>:<adicional>" (ex.: +2 peças por R$ 2), com o preço da vitrine
+    for (const p of vit.data.p || []) for (const a of p.ad || []) produtos.set(`ad:${p.id}:${a.id}`, { id: `ad:${p.id}:${a.id}`, n: '➕ ' + a.n, v: a.v, ad: true, arteId: p.id, adId: a.id });
+    // p.ad do produto é a lista de ofertas; ad === true só no item adicional
     const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 50).map((i: { id: string; q: number }) => {
-      const p = produtos.get(i.id) as { id: string; n: string; v: number } | undefined, q = Math.floor(Number(i.q));
-      return p && q >= 1 && q <= 99 ? { id: p.id, n: p.n, v: Number(p.v) || 0, q } : null;
-    }).filter(Boolean) as { id: string; n: string; v: number; q: number }[];
+      const p = produtos.get(i.id) as { id: string; n: string; v: number; ad?: unknown; arteId?: string; adId?: string } | undefined, q = Math.floor(Number(i.q));
+      return p && q >= 1 && q <= 99 ? { id: p.id, n: p.n, v: Number(p.v) || 0, q, ...(p.ad === true ? { ad: true, arteId: p.arteId, adId: p.adId } : {}) } : null;
+    }).filter(Boolean) as { id: string; n: string; v: number; q: number; ad?: boolean }[];
     if (!itens.length) return resp({ erro: 'Nenhum produto válido no pedido.' }, 400);
 
     const subtotal = +itens.reduce((s, i) => s + i.v * i.q, 0).toFixed(2);

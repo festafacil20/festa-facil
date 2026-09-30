@@ -64,12 +64,12 @@ function sincronizarPagamento(p) {
     return d.pago ? 'Pagamento recebido · entrou no Caixa' : 'Marcado como a receber · saiu do Caixa';
   }
   if (!d.pago) return 'Marcado como a receber';
-  const data = hoje(), itens = d.itens.filter(i => by(db.artes, i.id)).map(i => ({ arteId: i.id, q: i.q, preco: i.v, custo: custoArte(by(db.artes, i.id)) }));
+  const data = hoje(), itens = itensVendaDoPedido(d);
   if (!itens.length) return 'Pagamento recebido (os produtos do pedido não existem mais; lance a receita no Caixa)';
   const v = { id: uid(), data, clienteId: clientePedido(p).id, nome: '', itens, desconto: 0, taxa: d.taxa || 0, forma: d.forma || 'pix', parcelas: 1, primeira: data, pago: true,
     obs: `Pedido de ${new Date(p.criado_em).toLocaleDateString('pt-BR')} · ${retira(d) ? 'retirada' : `entregar em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}`}${d.obs ? ' · ' + d.obs : ''}` };
   db.vendas.push(v);
-  v.itens.forEach(i => { const k = kitDe(by(db.artes, i.arteId)); if (k) baixarComp(k.itens, i.q, { motivo: `Venda: ${i.q}× ${k.nome}`, vendaId: v.id, data }); else db.pmovs.push({ id: uid(), arteId: i.arteId, data, tipo: 'venda', qtd: -i.q, vendaId: v.id }); });
+  v.itens.forEach(i => baixarItemVenda(i, v.id, data));
   lancarRecebimento(v); d.vendaId = v.id; save();
   return `Pagamento recebido · venda de ${brl(totalVenda(v))} registrada no Caixa`;
 }
@@ -77,8 +77,13 @@ function lancarRecebimento(v) { // receita da venda no Caixa (uma entrada, na da
   db.lancamentos = db.lancamentos.filter(l => l.vendaId !== v.id);
   if (v.pago) db.lancamentos.push({ id: uid(), tipo: 'r', valor: totalVenda(v), data: hoje(), cat: 'Venda de produtos', desc: `Venda: ${nomeCliVenda(v)}`, forma: v.forma, vendaId: v.id, origem: 'venda' });
 }
+// itens do pedido (produtos e adicionais) no formato da venda
+const itensVendaDoPedido = d => d.itens.map(i => {
+  if (i.ad) { const a = by(db.artes, i.arteId), ad = adDe(a, i.adId); return ad ? { arteId: a.id, adId: ad.id, q: i.q, preco: i.v, custo: custoAd(ad) } : null; }
+  const a = by(db.artes, i.id); return a ? { arteId: a.id, q: i.q, preco: i.v, custo: custoArte(a) } : null;
+}).filter(Boolean);
 function registrarVendaPedido(p) {
-  const d = p.dados, itens = d.itens.filter(i => by(db.artes, i.id)).map(i => ({ arteId: i.id, q: i.q, preco: i.v }));
+  const d = p.dados, itens = itensVendaDoPedido(d);
   if (!itens.length) return toast('Os produtos deste pedido não existem mais');
   const c = clientePedido(p), id = uid();
   d.vendaId = id; gravarPedido(p, { status: 'convertido' });
@@ -151,7 +156,7 @@ function formPedidoProd(p) {
     <div class="row"><span>Telefone</span><b>${esc(p.tel)}</b></div>
     <div class="row"><span>Receber</span><b>${retira(d) ? 'vai retirar' : esc(`${d.end}${d.cidade ? ' - ' + d.cidade : ''}`)}</b></div>
     ${d.obs ? `<div class="row"><span>Observações</span><b>${esc(d.obs)}</b></div>` : ''}
-    <h3 style="margin:14px 0 4px">Produtos</h3>${d.itens.map(i => { const a = by(db.artes, i.id); return `<div class="row"><span>${i.q}× ${esc(i.n)}${a ? ` <small style="color:var(--mut)">(estoque ${saldoArte(a)})</small>` : ' <small style="color:var(--bad)">(excluído)</small>'}</span><b>${brl(i.v * i.q)}</b></div>`; }).join('')}
+    <h3 style="margin:14px 0 4px">Produtos</h3>${d.itens.map(i => { const a = by(db.artes, i.ad ? i.arteId : i.id); return `<div class="row"><span>${i.q}× ${esc(i.n)}${i.ad ? '' : a ? ` <small style="color:var(--mut)">(estoque ${saldoArte(a)})</small>` : ' <small style="color:var(--bad)">(excluído)</small>'}</span><b>${brl(i.v * i.q)}</b></div>`; }).join('')}
     ${d.taxa ? `<div class="row"><span>Taxa de entrega</span><b>${brl(d.taxa)}</b></div>` : ''}
     <div class="total">Total: ${brl(d.total)}</div>
     <div class="row"><span>Pagamento</span><b>${esc(FORMAS_ALL[d.forma] || 'não informado')}</b></div>

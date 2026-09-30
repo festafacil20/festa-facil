@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '30'; // manter igual ao número em sw.js (marizekids-v30)
+const VERSAO = '31'; // manter igual ao número em sw.js (marizekids-v31)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -411,7 +411,7 @@ function formCatalogo(catId, o) {
 function b64(obj) { return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function dadosCardapio(comFotos) {
   const item = (x, m) => { const r = { id: x.id, c: x.cat, n: x.nome, d: x.desc || '' }; if (comFotos && x.imgs.length) r.g = x.imgs; if (m === 'f') r.f = FAIXAS.map(f => faixaV(x, f)); else r.v = x.valor || 0; return r; };
-  const prod = a => { const r = { id: a.id, n: a.nome, d: a.desc || '', v: a.preco || 0, e: saldoArte(a) > 0 }; if (comFotos && (a.imgs || []).length) r.g = a.imgs; return r; };
+  const prod = a => { const r = { id: a.id, n: a.nome, d: a.desc || '', v: a.preco || 0, e: saldoArte(a) > 0 }; const ads = (a.adicionais || []).filter(x => !(x.itens || []).length || quantosDa(x.itens) > 0).map(x => ({ id: x.id, n: x.nome, v: x.preco })); if (ads.length) r.ad = ads; if (comFotos && (a.imgs || []).length) r.g = a.imgs; return r; };
   return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod), ent: regrasEntrega(), pix: db.config.pixChave ? { k: pixChave(db.config.pixChave, db.config.pixTipo), n: db.config.pixNome || '', c: db.config.pixCidade || '' } : null };
 }
 async function htmlCardapio() {

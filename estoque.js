@@ -419,6 +419,7 @@ function formKit(k) {
         <div class="s" style="color:var(--mut);margin-top:6px">Aparece na loja online. Ao registrar a venda, os materiais do kit saem do estoque sozinhos.</div>
         <label>Preço de venda (R$)</label><input id="kpr" inputmode="decimal" value="${art && art.preco || ''}">
         <button class="btn sec sm" id="kpcalc" type="button" style="margin-top:6px">🏷️ Calcular preço</button><div id="kpc"></div>
+        ${htmlAdicionais('kads')}
         <label>Descrição (aparece na loja)</label><textarea id="kds" rows="2">${esc(art ? art.desc : '')}</textarea>
         <label>Fotos (até 3)</label><div id="kimg" class="fotos"></div><input type="file" id="kf" accept="image/*" multiple hidden><button class="btn sec sm" id="kfb" type="button">📷 Adicionar fotos</button>
       </div></div>
@@ -426,7 +427,7 @@ function formKit(k) {
     <div class="s" style="color:var(--mut)">Ligado, o kit aparece na festa que tiver esse item e você dá baixa do estoque com um toque.</div>
     <button class="btn full" id="ksave">Salvar kit</button>
     ${novo ? '' : '<button class="btn sec full" id="kbaixa">➖ Dar baixa deste kit</button><button class="btn del full" id="kdel">Excluir kit</button>'}`, b => {
-    const ed = editorComp($('#kcomp'), comp);
+    const ed = editorComp($('#kcomp'), comp), eda = editorAdicionais($('#kads'), copiaAds(art));
     $('#kpcalc').onclick = () => { ed.le(); $('#kpcalc').hidden = true; calcPreco($('#kpc'), { custo: custoComp(comp), preco: num($('#kpr').value), nome: 'Custo dos materiais do kit já preenchido', aberta: true, onUsar: v => { $('#kpr').value = v.toFixed(2).replace('.', ','); $('#kpr').dispatchEvent(new Event('input', { bubbles: true })); toast('Preço aplicado: ' + brl(v)); } }); };
     const pv = () => { $('#kimg').innerHTML = imgs.map((s, i) => `<span class="ph1"><img src="${s}"><button type="button" data-rm="${i}">✕</button></span>`).join(''); };
     pv(); $('#kimg').onclick = e => { const x = e.target.closest('[data-rm]'); if (x) { imgs.splice(+x.dataset.rm, 1); pv(); } };
@@ -447,7 +448,7 @@ function formKit(k) {
       if (vend && preco <= 0) return toast('Informe o preço de venda do kit');
       Object.assign(k, { nome: n, itens, vinculo: iid ? { itemId: iid, fx } : null });
       let a = by(db.artes, k.arteId);
-      if (vend) { if (!a) { a = { id: uid(), receita: [], extra: 0 }; db.artes.push(a); k.arteId = a.id; } Object.assign(a, { nome: n, desc: $('#kds').value.trim(), imgs: [...imgs], preco, loja: true, kitId: k.id }); }
+      if (vend) { if (!a) { a = { id: uid(), receita: [], extra: 0 }; db.artes.push(a); k.arteId = a.id; } Object.assign(a, { nome: n, desc: $('#kds').value.trim(), imgs: [...imgs], preco, loja: true, kitId: k.id, adicionais: eda.valores() }); }
       else if (a) a.loja = false;
       if (novo) db.kits.push(k); save(); fechar(); st.et = 'kits'; render(); toast(vend ? 'Kit salvo e na loja' : 'Kit salvo');
     };

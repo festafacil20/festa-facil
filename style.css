@@ -85,3 +85,4 @@ label{display:block;font-size:.8rem;color:var(--mut);margin:10px 0 4px}
 .calch{margin:16px 0 6px;font-size:.9rem;color:var(--p)}.calch small{color:var(--mut);font-weight:400}
 .margens{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mg{background:#f7f4fb;border-radius:10px;padding:6px}.mg button{width:100%;border:0;border-radius:8px;padding:7px;background:#eee9f7;color:var(--p);font-weight:700;margin-bottom:6px}.mg button.on{background:var(--p);color:#fff}.mg .par{align-items:center}.mg .par input{padding:7px}
 .tprec{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:6px}.tprec th{font-size:.72rem;color:var(--mut);font-weight:600;text-align:left;padding:4px}.tprec td{padding:7px 4px;border-top:1px solid var(--bd);vertical-align:middle}.tprec tr.on td{background:#f3f0fa}.tprec td small{color:var(--mut)}.tprec .btn{padding:5px 8px}
+.adbox{background:#f7f4fb;border:1px dashed var(--bd);border-radius:10px;padding:8px;margin-bottom:8px}
