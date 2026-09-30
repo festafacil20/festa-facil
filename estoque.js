@@ -15,7 +15,9 @@ function custoUn(p, prof = 0) { // custo por unidade base (ml, g ou un)
   const cs = db.compras.filter(c => c.produtoId === p.id), q = cs.reduce((s, c) => s + c.qtdBase, 0);
   return q ? cs.reduce((s, c) => s + c.valor, 0) / q : 0;
 }
-const baixo = p => p.minimo > 0 && saldoProd(p) <= p.minimo;
+// p.semEstoque: item sem controle de estoque (nunca bloqueia kits/adicionais nem gera aviso); as movimentações continuam no histórico
+const semControle = p => !!(p && p.semEstoque);
+const baixo = p => !semControle(p) && p.minimo > 0 && saldoProd(p) <= p.minimo;
 function avisosEstoque() {
   return db.produtos.filter(baixo).map(p => `📦 Estoque baixo: ${esc(p.nome)} (${fmtQtd(saldoProd(p), p.un)}; mínimo ${fmtQtd(p.minimo, p.un)})`);
 }
@@ -29,8 +31,8 @@ function somaMeses(dataIso, n) {
 /* ---- composição (usada por kits e por receitas de artes) ---- */
 const custoComp = comp => comp.reduce((s, c) => { const p = by(db.produtos, c.produtoId); return s + (p ? custoUn(p) * c.qtd : 0); }, 0);
 const txtComp = comp => comp.map(c => { const p = by(db.produtos, c.produtoId); return p ? `${fmtQtd(c.qtd, p.un)} de ${p.nome}` : '(produto excluído)'; }).join(' + ');
-const faltasComp = (comp, mult) => comp.filter(c => { const p = by(db.produtos, c.produtoId); return p && saldoProd(p) < c.qtd * mult; }).map(c => { const p = by(db.produtos, c.produtoId); return `${p.nome}: precisa ${fmtQtd(c.qtd * mult, p.un)}, tem ${fmtQtd(saldoProd(p), p.un)}`; });
-const quantosDa = comp => { const v = comp.filter(c => c.qtd > 0).map(c => { const p = by(db.produtos, c.produtoId); return p ? Math.floor(Math.max(0, saldoProd(p)) / c.qtd) : 0; }); return v.length ? Math.min(...v) : 0; };
+const faltasComp = (comp, mult) => comp.filter(c => { const p = by(db.produtos, c.produtoId); return p && !semControle(p) && saldoProd(p) < c.qtd * mult; }).map(c => { const p = by(db.produtos, c.produtoId); return `${p.nome}: precisa ${fmtQtd(c.qtd * mult, p.un)}, tem ${fmtQtd(saldoProd(p), p.un)}`; });
+const quantosDa = comp => { const cs = comp.filter(c => c.qtd > 0), v = cs.filter(c => !semControle(by(db.produtos, c.produtoId))).map(c => { const p = by(db.produtos, c.produtoId); return p ? Math.floor(Math.max(0, saldoProd(p)) / c.qtd) : 0; }); return v.length ? Math.min(...v) : cs.length ? 999 : 0; }; // 999 = só itens sem controle
 function baixarComp(comp, mult, extra) { // lança as baixas de cada componente num mesmo lote
   const lote = uid();
   comp.forEach(c => { if (c.qtd > 0 && by(db.produtos, c.produtoId)) db.movs.push({ id: uid(), produtoId: c.produtoId, data: hoje(), tipo: 'baixa', qtd: -(c.qtd * mult), lote, ...extra }); });
@@ -103,7 +105,7 @@ function viewEstoque() {
     ${st.pcat ? '<button class="btn sec sm" id="edPcat" style="margin-bottom:10px">✎ Editar categoria</button>' : ''}
     <div class="card">${lista.map(p => {
       const s = saldoProd(p), cu = custoUn(p), pc = by(db.pcats, p.cat);
-      return `<div class="row" data-p="${p.id}"><div><div class="t">${(p.receita || []).length ? '🔨 ' : ''}${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * UNS[p.un].k) + '/' + p.un : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
+      return `<div class="row" data-p="${p.id}"><div><div class="t">${(p.receita || []).length ? '🔨 ' : ''}${esc(p.nome)} ${baixo(p) ? '<span class="badge bad">baixo</span>' : ''}${semControle(p) ? ' <span class="badge">♾️ sem controle</span>' : ''}</div><div class="s">${pc ? esc(pc.nome) + ' · ' : ''}${p.conteudo ? '≈ ' + rn(s / p.conteudo) + ' ' + esc(p.emb || 'emb.') : ''}${cu ? ' · ' + brl(cu * UNS[p.un].k) + '/' + p.un : ''}</div></div><b class="${s < 0 ? 'neg' : ''}">${fmtQtd(s, p.un)}</b></div>`;
     }).join('') || '<div class="vazio">Nenhum produto cadastrado</div>'}</div>
     <div style="display:flex;gap:8px"><button class="btn full" id="bcompra">🛒 Lançar compra</button><button class="btn sec full" id="bbaixa">➖ Dar baixa</button></div>
     ${db.produtos.some(p => (p.receita || []).length) ? '<button class="btn sec full" id="bproduzir">🔨 Registrar produção</button>' : ''}`;
@@ -266,6 +268,7 @@ function formProduto(p, opts) {
     <label>Embalagem que eu compro (nome)</label><input id="pe" value="${esc(p.emb)}" placeholder="Ex.: galão, pacote, caixa">
     <label>Quanto vem em cada embalagem</label><div class="par"><input id="pcont" inputmode="decimal"><select id="pcu"></select></div>
     <label>Avisar quando o estoque chegar em</label><div class="par"><input id="pmin" inputmode="decimal"><select id="pmu"></select></div>
+    <div class="chk" style="margin-top:12px"><input type="checkbox" id="psem" ${p.semEstoque ? 'checked' : ''}><label style="margin:0"><b>♾️ Não controlar estoque deste item</b><br><small style="color:var(--mut)">Nunca bloqueia kits, adicionais e produtos que usam ele, e não avisa estoque baixo. As entradas e saídas continuam no histórico.</small></label></div>
     <div class="card" style="background:#f3f0fa;margin:14px 0 0"><div class="chk" style="margin:0"><input type="checkbox" id="pprod" ${(p.receita || []).length ? 'checked' : ''}><label style="margin:0"><b>🔨 Eu produzo este item</b></label></div>
       <div id="pprodbox" ${(p.receita || []).length ? '' : 'hidden'}>
         <div class="s" style="color:var(--mut);margin-top:6px">Materiais usados para fazer <b>1 <span id="pruni"></span></b>. Ao registrar a produção, eles saem do estoque. Este item pode entrar em kits e em receitas de outros produtos.</div>
@@ -292,7 +295,7 @@ function formProduto(p, opts) {
       const n = $('#pn').value.trim(); if (!n) return toast('Informe o nome');
       edr.le(); const rec = $('#pprod').checked ? receita.filter(c => c.qtd > 0 && c.produtoId !== p.id).map(c => ({ produtoId: c.produtoId, qtd: c.qtd })) : [];
       if ($('#pprod').checked && !rec.length) return toast('Informe os materiais da receita (ou desmarque "Eu produzo")');
-      Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu'), receita: rec });
+      Object.assign(p, { nome: n, cat: $('#pc').value, un: un(), emb: $('#pe').value.trim(), conteudo: base('#pcont', '#pcu'), minimo: base('#pmin', '#pmu'), receita: rec, semEstoque: $('#psem').checked });
       if (novo) { db.produtos.push(p); const ini = $('#pini') ? base('#pini', '#piu') : 0; if (ini > 0) db.movs.push({ id: uid(), produtoId: p.id, data: hoje(), tipo: 'ajuste', qtd: ini, motivo: 'Saldo inicial' }); }
       save();
       if (novo && opts.entao === 'compra') { fechar(); return formCompra(p.id); }
