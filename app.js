@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '29'; // manter igual ao número em sw.js (marizekids-v29)
+const VERSAO = '30'; // manter igual ao número em sw.js (marizekids-v30)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -181,11 +181,12 @@ function viewDashboard() {
   <div class="kpi" style="margin-bottom:12px"><small>Lucro previsto dos eventos do mês</small><b class="${L.l >= 0 ? 'pos' : 'neg'}">${brl(L.l)}</b></div>
   <div id="dpeds"></div>
   <div id="dcalc"></div>
+  <div id="dpreco"></div>
   ${avisos.map(a => `<div class="aviso ${a.bad ? 'bad' : ''}">${a.t}</div>`).join('')}
   <div class="card"><h3>Últimos 6 meses</h3><div class="chart">${meses.map(m => `<div class="c"><div class="b"><i style="height:${m.r / mx * 100}%;background:var(--ok)"></i><i style="height:${m.d / mx * 100}%;background:var(--bad)"></i></div>${m.l}</div>`).join('')}</div>
   <div style="font-size:.7rem;color:var(--mut);margin-top:6px">🟩 receita &nbsp; 🟥 despesa</div></div>
   <div class="card"><h3>Próximos eventos</h3>${futuros.slice(0, 5).map(rowEvento).join('') || '<div class="vazio">Nenhum evento agendado</div>'}</div>`;
-  contarPedidos($('#dpeds')); calcRapida($('#dcalc'));
+  contarPedidos($('#dpeds')); calcRapida($('#dcalc')); calcPreco($('#dpreco'), { noInicio: true });
 }
 function rowEvento(e) {
   const c = by(db.clientes, e.clienteId);
@@ -523,7 +524,7 @@ function viewConfig() {
   $('#atualizar').onclick = async () => {
     toast('Atualizando...');
     try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
-    try { await Promise.all(['./', 'index.html', 'app.js', 'estoque.js', 'vendas.js', 'relatorios.js', 'config.js', 'pix.js', 'nuvem.js', 'entregas.js', 'calc.js', 'boot.js', 'style.css', 'sw.js'].map(f => fetch(f, { cache: 'reload' }))); } catch {}
+    try { await Promise.all(['./', 'index.html', 'app.js', 'estoque.js', 'vendas.js', 'relatorios.js', 'config.js', 'pix.js', 'nuvem.js', 'entregas.js', 'calc.js', 'preco.js', 'boot.js', 'style.css', 'sw.js'].map(f => fetch(f, { cache: 'reload' }))); } catch {}
     location.reload();
   };
   $('#cfs').onclick = () => { db.config.nome = $('#cfn').value.trim() || 'Marize Kids'; db.config.whats = $('#cfw').value.trim(); Object.assign(db.config, { pixTipo: $('#cpt').value, pixChave: $('#cpk').value.trim(), pixNome: $('#cpn').value.trim(), pixCidade: $('#cpc').value.trim() }); save(); toast('Salvo'); };

@@ -49,6 +49,7 @@ function formArte(a) {
     <label>Descrição (opcional)</label><textarea id="ad" rows="2">${esc(a.desc)}</textarea>
     <label>Fotos (até 3)</label><div id="aimg" class="fotos"></div><input type="file" id="af" accept="image/*" multiple hidden><button class="btn sec sm" id="afb" type="button">📷 Adicionar fotos</button>
     <label>Preço de venda (R$)</label><input id="ap" inputmode="decimal" value="${a.preco || ''}">
+    <button class="btn sec sm" id="apcalc" type="button" style="margin-top:6px">🏷️ Calcular preço</button><div id="apc"></div>
     <div class="chk"><input type="checkbox" id="aloja" ${a.loja === false ? '' : 'checked'}><label style="margin:0">Mostrar na loja online (link para clientes)</label></div>
     <label>Insumos usados em 1 unidade (receita) — opcional</label>
     <div id="acomp"></div>
@@ -63,6 +64,7 @@ function formArte(a) {
     $('#afb').onclick = () => $('#af').click();
     $('#af').onchange = async e => { for (const f of e.target.files) { if (imgs.length >= 3) break; await new Promise(r => lerImagem(f, d => { imgs.push(d); r(); })); } e.target.value = ''; pv(); };
     const ed = editorComp($('#acomp'), comp);
+    $('#apcalc').onclick = () => { ed.le(); $('#apcalc').hidden = true; calcPreco($('#apc'), { custo: custoComp(comp) + num($('#ax').value), preco: num($('#ap').value), nome: 'Custo da receita e outros custos já preenchidos', aberta: true, onUsar: v => { $('#ap').value = v.toFixed(2).replace('.', ','); $('#ap').dispatchEvent(new Event('input', { bubbles: true })); toast('Preço aplicado: ' + brl(v)); } }); };
     const custo = () => { ed.le(); const c = custoComp(comp) + num($('#ax').value); $('#acusto').textContent = c ? `Custo estimado por unidade: ${brl(c)}${num($('#ap').value) ? ' · lucro ≈ ' + brl(num($('#ap').value) - c) : ''}` : ''; };
     b.addEventListener('input', custo); b.addEventListener('change', custo); b.addEventListener('click', () => setTimeout(custo)); custo();
     const qpBox = $('#qpBox');
