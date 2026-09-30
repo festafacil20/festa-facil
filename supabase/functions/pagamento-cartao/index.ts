@@ -4,7 +4,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const LOJA_URL = 'https://festafacil20.github.io/marizekids/loja.html';
-const CIDADES = ['Itaporã', 'Dourados'], TAXA = 7, MINIMO_GRATIS = 47;
+// Reserva: as regras de entrega valem as que vêm do app pela vitrine (Configurações › Entrega)
+const ENT_PADRAO = { cidades: [{ nome: 'Itaporã', taxa: 2, minimo: 50 }, { nome: 'Dourados', taxa: 7, minimo: 47 }], prazo: 2 };
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const resp = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const txt = (s: unknown, n: number) => String(s ?? '').trim().slice(0, n);
@@ -19,11 +20,13 @@ Deno.serve(async (req) => {
     const cidade = receber === 'entrega' ? txt(b.cidade, 40) : '', end = receber === 'entrega' ? txt(b.end, 200) : '';
     if (!nome) return resp({ erro: 'Informe seu nome.' }, 400);
     if (tel.replace(/\D/g, '').length < 8) return resp({ erro: 'Informe um telefone.' }, 400);
-    if (receber === 'entrega' && (!CIDADES.includes(cidade) || end.length < 5)) return resp({ erro: 'Informe a cidade e o endereço.' }, 400);
 
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const { data: vit, error: ev } = await sb.from('vitrine').select('data').eq('id', 1).single();
     if (ev || !vit) throw new Error('vitrine indisponível');
+    const ent = vit.data.ent && Array.isArray(vit.data.ent.cidades) ? vit.data.ent : ENT_PADRAO;
+    const regra = ent.cidades.find((c: { nome: string }) => c.nome === cidade) as { nome: string; taxa: number; minimo: number } | undefined;
+    if (receber === 'entrega' && (!regra || end.length < 5)) return resp({ erro: 'Informe a cidade e o endereço.' }, 400);
     const produtos = new Map((vit.data.p || []).map((p: { id: string }) => [p.id, p]));
     const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 50).map((i: { id: string; q: number }) => {
       const p = produtos.get(i.id) as { id: string; n: string; v: number } | undefined, q = Math.floor(Number(i.q));
@@ -32,7 +35,7 @@ Deno.serve(async (req) => {
     if (!itens.length) return resp({ erro: 'Nenhum produto válido no pedido.' }, 400);
 
     const subtotal = +itens.reduce((s, i) => s + i.v * i.q, 0).toFixed(2);
-    const taxa = receber === 'entrega' && cidade === 'Dourados' && subtotal < MINIMO_GRATIS ? TAXA : 0;
+    const taxa = receber === 'entrega' && regra && subtotal < Number(regra.minimo) ? Number(regra.taxa) || 0 : 0;
     const total = +(subtotal + taxa).toFixed(2);
     const dados = { tipo: 'produtos', receber, cidade, end, forma, obs: txt(b.obs, 500), subtotal, taxa, total, itens, pagamento: 'mercadopago' };
     const { data: ped, error: ep } = await sb.from('pedidos').insert({ nome, tel, dados }).select('id').single();

@@ -1,7 +1,7 @@
 'use strict';
 /* ===== Banco de dados (localStorage) ===== */
 const KEY = 'festafacil.v1'; // não renomear: é onde os dados já estão guardados nos aparelhos
-const VERSAO = '27'; // manter igual ao número em sw.js (marizekids-v27)
+const VERSAO = '28'; // manter igual ao número em sw.js (marizekids-v28)
 const FAIXAS = [10, 15, 20, 25];
 const CATS_PADRAO = () => [{ id: 'c_brinq', nome: 'Brinquedos', m: 'd' }, { id: 'c_ofic', nome: 'Oficinas', m: 'f' }, { id: 'c_pac', nome: 'Pacotes', m: 'x' }];
 const MODELOS = { d: 'Diária com estoque (ex.: brinquedos)', f: 'Preço por nº de crianças (ex.: oficinas)', x: 'Preço fixo (ex.: pacotes)' };
@@ -35,6 +35,11 @@ const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julh
 const STATUS = { orcamento: 'Orçamento', confirmado: 'Confirmado', realizado: 'Realizado', cancelado: 'Cancelado' };
 const FORMAS = { pix: 'Pix', cartao: 'Cartão', dinheiro: 'Dinheiro' };
 const FORMAS_ALL = { ...FORMAS, credito: 'Cartão de crédito', debito: 'Cartão de débito', boleto: 'Boleto', outro: 'Outro' };
+// Regras de entrega por cidade (editáveis em Configurações). Vão na vitrine e são usadas pela loja, pela bio,
+// pelo lançamento manual de pedidos e pela função pagamento-cartao (que confere o valor do cartão).
+const ENTREGA_PADRAO = () => ({ cidades: [{ nome: 'Itaporã', taxa: 2, minimo: 50 }, { nome: 'Dourados', taxa: 7, minimo: 47 }], prazo: 2 });
+const regrasEntrega = () => db.config.entrega || ENTREGA_PADRAO();
+function taxaEntrega(receber, cidade, sub) { if (receber === 'retirada') return 0; const c = regrasEntrega().cidades.find(x => x.nome === cidade); return c && sub > 0 && sub < c.minimo ? c.taxa : 0; }
 const CATS_R = ['Sinal de evento', 'Pagamento de evento', 'Venda de produtos', 'Outros'];
 const CATS_D = ['Material', 'Transporte', 'Funcionários', 'Manutenção', 'Marketing', 'Outros'];
 let toastT;
@@ -406,7 +411,7 @@ function b64(obj) { return btoa(String.fromCharCode(...new TextEncoder().encode(
 function dadosCardapio(comFotos) {
   const item = (x, m) => { const r = { id: x.id, c: x.cat, n: x.nome, d: x.desc || '' }; if (comFotos && x.imgs.length) r.g = x.imgs; if (m === 'f') r.f = FAIXAS.map(f => faixaV(x, f)); else r.v = x.valor || 0; return r; };
   const prod = a => { const r = { id: a.id, n: a.nome, d: a.desc || '', v: a.preco || 0, e: saldoArte(a) > 0 }; if (comFotos && (a.imgs || []).length) r.g = a.imgs; return r; };
-  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod), pix: db.config.pixChave ? { k: pixChave(db.config.pixChave, db.config.pixTipo), n: db.config.pixNome || '', c: db.config.pixCidade || '' } : null };
+  return { n: db.config.nome, w: db.config.whats, c: db.categorias.map(c => ({ id: c.id, n: c.nome, m: c.m })), i: db.catalogo.map(x => item(x, mod(x))), p: db.artes.filter(a => a.loja !== false).map(prod), ent: regrasEntrega(), pix: db.config.pixChave ? { k: pixChave(db.config.pixChave, db.config.pixTipo), n: db.config.pixNome || '', c: db.config.pixCidade || '' } : null };
 }
 async function htmlCardapio() {
   const [h, j, c] = await Promise.all(['cardapio.html', 'cardapio.js', 'style.css'].map(u => fetch(u).then(r => r.text())));
@@ -496,6 +501,10 @@ function viewConfig() {
   <label>Cidade do titular</label><input id="cpc" value="${esc(db.config.pixCidade || '')}" placeholder="Ex.: Itaporã">
   <button class="btn full" id="cfs">Salvar</button></div>
   ${ehAndroid ? `<div class="card"><h3>💬 WhatsApp deste aparelho</h3><div class="chk" style="margin:0"><input type="checkbox" id="cfw4b" ${usaBusiness() ? 'checked' : ''}><label style="margin:0">Falar com clientes pelo <b>WhatsApp Business</b> (número da empresa)</label></div><p class="s" style="color:var(--mut);margin:6px 0 0">Desmarque se este celular não tiver o WhatsApp Business instalado.</p></div>` : ''}
+  <div class="card"><h3>🚚 Entrega</h3><p class="s" style="color:var(--mut);margin-top:0">Vale para a loja, a página da bio, o pagamento com cartão e os pedidos lançados à mão.</p>
+    ${regrasEntrega().cidades.map((c, i) => `<div style="margin-top:8px"><b>${esc(c.nome)}</b></div><div class="par"><div style="flex:1"><label style="margin-top:2px">Taxa (R$)</label><input data-etx="${i}" inputmode="decimal" value="${String(c.taxa).replace('.', ',')}"></div><div style="flex:1"><label style="margin-top:2px">Grátis a partir de (R$)</label><input data-emin="${i}" inputmode="decimal" value="${String(c.minimo).replace('.', ',')}"></div></div>`).join('')}
+    <label>Prazo de entrega (dias)</label><input id="eprazo" type="number" min="0" inputmode="numeric" value="${regrasEntrega().prazo || ''}">
+    <button class="btn full" id="esave">Salvar entrega</button></div>
   <div class="card"><h3>Backup</h3><p class="s" style="color:var(--mut);margin-top:0">Os dados ficam salvos na nuvem e aparecem em qualquer aparelho onde você entrar. O backup é uma cópia extra.</p>
   <button class="btn sec full" id="bx">⬇️ Exportar backup</button><button class="btn sec full" id="bi">⬆️ Importar backup</button><input type="file" id="bf" accept="application/json" hidden></div>
   <div class="card"><h3>Conta</h3><div class="row"><span>Conectado como</span><b id="cfemail"></b></div><button class="btn sec full" id="sair">Sair desta conta</button></div>
@@ -504,6 +513,11 @@ function viewConfig() {
   <div class="card"><h3>Zona de perigo</h3><p class="s" style="color:var(--mut);margin-top:0">Apaga tudo na nuvem e em todos os aparelhos.</p><button class="btn del full" id="apagar">Apagar todos os dados</button></div>`;
   sb.auth.getUser().then(({ data }) => { if ($('#cfemail')) $('#cfemail').textContent = data.user ? data.user.email : ''; });
   $('#sair').onclick = sair;
+  $('#esave').onclick = () => {
+    const r = regrasEntrega();
+    db.config.entrega = { cidades: r.cidades.map((c, i) => ({ nome: c.nome, taxa: num(document.querySelector(`[data-etx="${i}"]`).value), minimo: num(document.querySelector(`[data-emin="${i}"]`).value) })), prazo: parseInt($('#eprazo').value) || 0 };
+    save(); toast('Regras de entrega salvas');
+  };
   if ($('#cfw4b')) $('#cfw4b').onchange = () => { try { localStorage.setItem(W4B, $('#cfw4b').checked ? '1' : '0'); } catch {} toast($('#cfw4b').checked ? 'Mensagens pelo WhatsApp Business' : 'Mensagens pelo WhatsApp normal'); };
   cardNotificacoes($('#cfgnotif'));
   $('#atualizar').onclick = async () => {

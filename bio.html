@@ -60,9 +60,10 @@ footer{text-align:center;color:var(--mut);font-size:.78rem;margin-top:26px}
   <a class="btn sec" href="loja.html">Ver todos os produtos ›</a>
 
   <h2>🚚 Entrega</h2>
-  <div class="info">
-    <div><span>📍</span><span><b>Itaporã:</b> entrega grátis</span></div>
+  <div class="info" id="info">
+    <div><span>📍</span><span><b>Itaporã:</b> grátis a partir de R$ 50 (abaixo disso, R$ 2)</span></div>
     <div><span>📍</span><span><b>Dourados:</b> grátis a partir de R$ 47 (abaixo disso, R$ 7)</span></div>
+    <div><span>📅</span><span>Prazo de entrega: 2 dias</span></div>
     <div><span>🏠</span><span>Ou retire com a gente, sem custo</span></div>
     <div><span>💳</span><span>Pix, cartão de crédito (até 12x), débito ou dinheiro</span></div>
   </div>
@@ -79,6 +80,11 @@ fetch(SUPA_URL + '/rest/v1/vitrine?select=data&id=eq.1', { headers: { apikey: SU
   if (d.n) { document.getElementById('nome').textContent = d.n; document.title = d.n; }
   let n = String(d.w || '').replace(/\D/g, ''); if (n && n.length <= 11) n = '55' + n;
   if (n) document.getElementById('zap').href = `https://wa.me/${n}?text=${encodeURIComponent(`Olá! Vim pelo Instagram e quero saber mais sobre os produtos da ${d.n || 'Marize Kids'} 😊`)}`;
+  if (d.ent && d.ent.cidades) { // regras de entrega do app (Configurações › Entrega)
+    const linhas = d.ent.cidades.map(c => `<div><span>📍</span><span><b>${esc(c.nome)}:</b> ${!c.taxa ? 'entrega grátis' : `grátis a partir de ${brl(c.minimo)} (abaixo disso, ${brl(c.taxa)})`}</span></div>`);
+    if (d.ent.prazo) linhas.push(`<div><span>📅</span><span>Prazo de entrega: ${d.ent.prazo} dia${d.ent.prazo > 1 ? 's' : ''}</span></div>`);
+    const info = document.getElementById('info'); info.querySelectorAll('div').forEach((x, i) => { if (i < 3) x.remove(); }); info.insertAdjacentHTML('afterbegin', linhas.join(''));
+  }
   const ps = (d.p || []).slice().sort((a, b) => (b.g ? 1 : 0) - (a.g ? 1 : 0)); // com foto primeiro
   document.getElementById('vitrine').innerHTML = ps.map(p => `<a class="prod" href="loja.html"><div class="img">${p.g && p.g[0] ? `<img src="${esc(p.g[0])}" alt="${esc(p.n)}" loading="lazy">` : '🎨'}</div><div class="inf"><div class="nm">${esc(p.n)}</div><div class="pr">${brl(p.v)}</div></div></a>`).join('') || '<div class="vazio">Novidades em breve!</div>';
 }).catch(() => { document.getElementById('vitrine').innerHTML = '<div class="vazio">Veja todos os produtos na loja.</div>'; });

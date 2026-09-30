@@ -6,13 +6,17 @@ const brl = n => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', c
 const H = { apikey: SUPA_KEY, 'Content-Type': 'application/json' };
 let d = null;
 const S = { q: {}, nome: '', tel: '', forma: '', receber: 'entrega', cidade: '', end: '', obs: '' };
-// Entrega: só Itaporã (sem taxa) e Dourados (R$ 7 para pedidos abaixo de R$ 47)
-const CIDADES = ['Itaporã', 'Dourados'], TAXA = 7, MINIMO_GRATIS = 47;
+// Entrega: regras por cidade vêm do app (Configurações › Entrega) pela vitrine; estas são só a reserva
+const ENT_PADRAO = { cidades: [{ nome: 'Itaporã', taxa: 2, minimo: 50 }, { nome: 'Dourados', taxa: 7, minimo: 47 }], prazo: 2 };
+const ent = () => (d && d.ent && d.ent.cidades) ? d.ent : ENT_PADRAO;
+const regra = () => ent().cidades.find(c => c.nome === S.cidade);
+const txtRegra = c => !c.taxa ? 'entrega grátis' : `grátis a partir de ${brl(c.minimo)}; abaixo disso, taxa de ${brl(c.taxa)}`;
+const txtPrazo = () => ent().prazo ? `📅 Prazo de entrega: ${ent().prazo} dia${ent().prazo > 1 ? 's' : ''}` : '';
 const FORMAS = { pix: 'Pix', credito: 'Cartão de crédito', debito: 'Cartão de débito', dinheiro: 'Dinheiro' };
 
 const itens = () => d.p.filter(x => S.q[x.id] > 0).map(x => ({ x, q: S.q[x.id] }));
 const subtotal = () => itens().reduce((s, i) => s + i.x.v * i.q, 0);
-const taxa = () => S.receber === 'entrega' && S.cidade === 'Dourados' && subtotal() < MINIMO_GRATIS ? TAXA : 0;
+const taxa = () => { if (S.receber !== 'entrega') return 0; const c = regra(); return c && subtotal() < c.minimo ? c.taxa : 0; };
 const total = () => subtotal() + taxa();
 function barra(txtBotao) {
   const n = itens().reduce((s, i) => s + i.q, 0);
@@ -36,11 +40,11 @@ function vitrine() {
 }
 
 function resumo() {
-  const tx = taxa(), falta = MINIMO_GRATIS - subtotal();
+  const tx = taxa(), falta = tx ? regra().minimo - subtotal() : 0;
   return `${itens().map(i => `<div class="row"><span>${i.q}× ${esc(i.x.n)}</span><b>${brl(i.x.v * i.q)}</b></div>`).join('')}
     ${S.receber === 'entrega' && S.cidade ? `<div class="row"><span>Entrega em ${esc(S.cidade)}</span><b>${tx ? brl(tx) : 'grátis'}</b></div>` : ''}
     <div class="total">Total: ${brl(total())}</div>
-    ${tx && falta > 0 ? `<div class="s" style="color:var(--mut)">Faltam ${brl(falta)} para a entrega em Dourados sair grátis.</div>` : ''}`;
+    ${tx && falta > 0 ? `<div class="s" style="color:var(--mut)">Faltam ${brl(falta)} para a entrega em ${esc(S.cidade)} sair grátis.</div>` : ''}`;
 }
 function dados(erro) {
   const opt = (v, t, sel) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${t}</option>`;
@@ -54,8 +58,8 @@ function dados(erro) {
   <div class="card"><h3>Como quer receber?</h3>
     <div class="tabs" style="margin:0"><button type="button" data-rec="entrega" class="${S.receber === 'entrega' ? 'on' : ''}">🚚 Entrega</button><button type="button" data-rec="retirada" class="${S.receber === 'retirada' ? 'on' : ''}">🏠 Retirada</button></div>
     <div id="boxEnt" ${S.receber === 'entrega' ? '' : 'hidden'}>
-      <label>Cidade *</label><select id="cidade">${opt('', 'Escolha a cidade', S.cidade)}${CIDADES.map(c => opt(c, c, S.cidade)).join('')}</select>
-      <div class="s" style="color:var(--mut);margin-top:4px">Itaporã: entrega grátis. Dourados: grátis a partir de ${brl(MINIMO_GRATIS)}; abaixo disso, taxa de ${brl(TAXA)}.</div>
+      <label>Cidade *</label><select id="cidade">${opt('', 'Escolha a cidade', S.cidade)}${ent().cidades.map(c => opt(c.nome, c.nome, S.cidade)).join('')}</select>
+      <div class="s" style="color:var(--mut);margin-top:4px">${ent().cidades.map(c => `<b>${esc(c.nome)}:</b> ${txtRegra(c)}`).join('<br>')}${txtPrazo() ? '<br>' + txtPrazo() : ''}</div>
       <label>Endereço *</label><input id="end" value="${esc(S.end)}" placeholder="Rua, número, bairro" autocomplete="street-address">
     </div>
     <div id="boxRet" class="s" style="color:var(--mut);margin-top:10px" ${S.receber === 'retirada' ? '' : 'hidden'}>Combinamos o local e o horário da retirada pelo WhatsApp.</div>
@@ -93,14 +97,14 @@ async function enviar() {
   const b = $('#seguir'); b.disabled = true; b.textContent = 'Enviando...';
   const ent = S.receber === 'entrega';
   const dadosPed = { tipo: 'produtos', receber: S.receber, cidade: ent ? S.cidade : '', end: ent ? S.end : '', forma: S.forma, obs: S.obs.slice(0, 500), subtotal: subtotal(), taxa: taxa(), total: total(), itens: itens().map(i => ({ id: i.x.id, n: i.x.n, v: i.x.v, q: i.q })) };
-  let mpLink = '', gravado = false;
+  let mpLink = '', mpTotal = 0, gravado = false;
   // Cartão: a nuvem grava o pedido e cria o link do Mercado Pago com o valor conferido
   if (S.forma === 'credito' || S.forma === 'debito') {
     try {
       const r = await fetch(SUPA_URL + '/functions/v1/pagamento-cartao', { method: 'POST', headers: H, body: JSON.stringify({ nome: S.nome, tel: S.tel, forma: S.forma, receber: S.receber, cidade: dadosPed.cidade, end: dadosPed.end, obs: dadosPed.obs, itens: dadosPed.itens.map(i => ({ id: i.id, q: i.q })) }) });
       const j = await r.json().catch(() => ({}));
       if (j.pedidoId) gravado = true;
-      if (r.ok && j.link) mpLink = j.link;
+      if (r.ok && j.link) { mpLink = j.link; mpTotal = Number(j.total) || 0; } // valor conferido na nuvem
     } catch {}
   }
   try {
@@ -117,7 +121,7 @@ async function enviar() {
   const pix = S.forma === 'pix' && d.pix && d.pix.k ? pixPayload({ chave: d.pix.k, nome: d.pix.n || d.n, cidade: d.pix.c, valor: total() }) : '';
   let qr = '';
   if (pix && typeof qrcode === 'function') { try { const q = qrcode(0, 'M'); q.addData(pix); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 2 }); } catch {} }
-  $('#lista').innerHTML = `<div class="card hero"><h2>🎉 Pedido recebido!</h2><p>Total: <b>${brl(total())}</b>${taxa() ? ` (com ${brl(taxa())} de entrega)` : ''} · ${esc(FORMAS[S.forma])} · ${S.receber === 'entrega' ? 'entrega em ' + esc(S.cidade) : 'retirada'}</p></div>
+  $('#lista').innerHTML = `<div class="card hero"><h2>🎉 Pedido recebido!</h2><p>Total: <b>${brl(total())}</b>${taxa() ? ` (com ${brl(taxa())} de entrega)` : ''} · ${esc(FORMAS[S.forma])} · ${S.receber === 'entrega' ? 'entrega em ' + esc(S.cidade) : 'retirada'}</p>${S.receber === 'entrega' && txtPrazo() ? `<p style="margin-top:6px">${txtPrazo()}</p>` : ''}</div>
   ${pix ? `<div class="card"><h3>💠 Pague com Pix</h3>
     <div class="s" style="color:var(--mut)">Valor: <b>${brl(total())}</b>${d.pix.n ? ` · Favorecido: <b>${esc(d.pix.n)}</b>` : ''}</div>
     ${qr ? `<div class="pixqr">${qr}</div>` : ''}
@@ -125,8 +129,8 @@ async function enviar() {
     <button class="btn full" id="pixcp">📋 Copiar código Pix</button>
     <div class="s" style="color:var(--mut);margin-top:6px">No app do seu banco, escolha <b>Pix › Copia e Cola</b> e cole o código. Depois envie o pedido abaixo.</div></div>` : ''}
   ${mpLink ? `<div class="card"><h3>💳 Pague com cartão</h3>
-    <div class="s" style="color:var(--mut)">Pagamento seguro pelo Mercado Pago, no crédito (com parcelamento) ou no débito. Valor: <b>${brl(total())}</b></div>
-    <a class="btn full" href="${esc(mpLink)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box">💳 Pagar ${brl(total())} com cartão</a>
+    <div class="s" style="color:var(--mut)">Pagamento seguro pelo Mercado Pago, no crédito (com parcelamento) ou no débito. Valor: <b>${brl(mpTotal || total())}</b></div>
+    <a class="btn full" href="${esc(mpLink)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box">💳 Pagar ${brl(mpTotal || total())} com cartão</a>
     <div class="s" style="color:var(--mut);margin-top:6px">Abre em outra aba. Depois de pagar, volte aqui e envie o pedido abaixo.</div></div>`
   : (S.forma === 'credito' || S.forma === 'debito') ? '<div class="aviso">Não conseguimos gerar o link do cartão agora. Envie o pedido abaixo que a loja te manda o link de pagamento pelo WhatsApp.</div>' : ''}
   ${d.w ? `<button class="btn wa full" id="zap" style="font-size:1.05rem;padding:14px">📲 ENVIAR PEDIDO PARA LOJA</button>

@@ -3,7 +3,6 @@
    Pedidos de produtos (loja ou lançados à mão) passam pelas etapas abaixo; o andamento fica em pedidos.dados
    (etapa, pago, hist, vendaId). Pedidos de festas continuam no fluxo de orçamento (formPedido em nuvem.js). */
 const ETAPAS = ['novo', 'preparo', 'pronto', 'rota', 'entregue', 'cancelado'];
-const ENTREGA = { cidades: ['Itaporã', 'Dourados'], taxa: 7, minimo: 47 }; // mesma regra de loja.js e da função pagamento-cartao
 const retira = d => entregaPed(d) === 'retirada';
 const etapaDe = p => p.dados.etapa || 'novo';
 function nomeEtapa(e, d) {
@@ -22,7 +21,7 @@ function msgEtapa(p) {
   const d = p.dados, e = etapaDe(p), nome = p.nome.split(' ')[0], loja = db.config.nome || 'Marize Kids';
   const cobra = !d.pago && e !== 'cancelado' ? `\n\nTotal: ${brl(d.total)}${d.forma ? ' (' + (FORMAS_ALL[d.forma] || d.forma) + ')' : ''}` : '';
   if (e === 'preparo') { // confirmação do pedido: resumo completo (itens, pagamento e entrega)
-    const receb = retira(d) ? '🏠 *Retirada* - combinamos o horário por aqui' : `🚚 *Entrega* em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}`;
+    const prazo = regrasEntrega().prazo, receb = retira(d) ? '🏠 *Retirada* - combinamos o horário por aqui' : `🚚 *Entrega* em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}${prazo ? `\n📅 Prazo de entrega: ${prazo} dia${prazo > 1 ? 's' : ''}` : ''}`;
     return `Olá ${nome}! Seu pedido na ${loja} está sendo preparado 🎨\n\n*Seu pedido:*\n`
       + d.itens.map(i => `• ${i.q}× ${i.n} - ${brl(i.v * i.q)}`).join('\n')
       + (d.taxa ? `\n• Taxa de entrega - ${brl(d.taxa)}` : '')
@@ -173,7 +172,7 @@ function formNovoPedido() {
     <label>Forma de pagamento</label><select id="nf">${['pix', 'credito', 'debito', 'dinheiro'].map(k => `<option value="${k}">${FORMAS_ALL[k]}</option>`).join('')}</select>
     <div class="chk"><input type="checkbox" id="np"><label style="margin:0">Já recebi o pagamento</label></div>
     <label>Como vai receber</label><div class="tabs" style="margin:0"><button type="button" data-nr="entrega" class="on">🚚 Entrega</button><button type="button" data-nr="retirada">🏠 Retirada</button></div>
-    <div id="nbox"><label>Cidade</label><select id="nc">${ENTREGA.cidades.map(c => `<option>${c}</option>`).join('')}</select><label>Endereço</label><input id="ne" placeholder="Rua, número, bairro"></div>
+    <div id="nbox"><label>Cidade</label><select id="nc">${regrasEntrega().cidades.map(c => `<option>${esc(c.nome)}</option>`).join('')}</select><label>Endereço</label><input id="ne" placeholder="Rua, número, bairro"></div>
     <label>Taxa de entrega (R$)</label><input id="ntx" inputmode="decimal">
     <label>Observações</label><textarea id="no" rows="2"></textarea>
     <div class="total" id="ntot"></div>
@@ -185,7 +184,7 @@ function formNovoPedido() {
     const atual = e => {
       if (e && e.target.id === 'ntx') taxaManual = true;
       const sub = itens().reduce((s, i) => s + i.a.preco * i.q, 0);
-      if (!taxaManual) $('#ntx').value = receber === 'entrega' && $('#nc').value === 'Dourados' && sub > 0 && sub < ENTREGA.minimo ? ENTREGA.taxa : '';
+      if (!taxaManual) $('#ntx').value = String(taxaEntrega(receber, $('#nc').value, sub) || '').replace('.', ',');
       $('#ntot').textContent = 'Total: ' + brl(sub + num($('#ntx').value));
     };
     b.addEventListener('input', atual); b.addEventListener('change', atual); atual();
