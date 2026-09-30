@@ -55,6 +55,28 @@ async function mudarEtapa(p, e) {
   if (e === 'cancelado' && vendaDoPedido(p)) alert('Este pedido tem uma venda registrada. Se o dinheiro não entrou, exclua a venda em Vendas para devolver o estoque.');
   return true;
 }
+/* Pagamento recebido = venda no Caixa. Ao marcar "pago" sem venda, a venda é criada sozinha (receita + baixa no estoque);
+   se a venda já existe, o "já recebi" dela acompanha o pedido. Devolve a mensagem para o aviso. */
+function sincronizarPagamento(p) {
+  const d = p.dados, venda = vendaDoPedido(p);
+  if (venda) {
+    if (venda.pago !== !!d.pago) { venda.pago = !!d.pago; lancarRecebimento(venda); save(); }
+    return d.pago ? 'Pagamento recebido · entrou no Caixa' : 'Marcado como a receber · saiu do Caixa';
+  }
+  if (!d.pago) return 'Marcado como a receber';
+  const data = hoje(), itens = d.itens.filter(i => by(db.artes, i.id)).map(i => ({ arteId: i.id, q: i.q, preco: i.v, custo: custoArte(by(db.artes, i.id)) }));
+  if (!itens.length) return 'Pagamento recebido (os produtos do pedido não existem mais; lance a receita no Caixa)';
+  const v = { id: uid(), data, clienteId: clientePedido(p).id, nome: '', itens, desconto: 0, taxa: d.taxa || 0, forma: d.forma || 'pix', parcelas: 1, primeira: data, pago: true,
+    obs: `Pedido de ${new Date(p.criado_em).toLocaleDateString('pt-BR')} · ${retira(d) ? 'retirada' : `entregar em ${d.end}${d.cidade ? ' - ' + d.cidade : ''}`}${d.obs ? ' · ' + d.obs : ''}` };
+  db.vendas.push(v);
+  v.itens.forEach(i => { const k = kitDe(by(db.artes, i.arteId)); if (k) baixarComp(k.itens, i.q, { motivo: `Venda: ${i.q}× ${k.nome}`, vendaId: v.id, data }); else db.pmovs.push({ id: uid(), arteId: i.arteId, data, tipo: 'venda', qtd: -i.q, vendaId: v.id }); });
+  lancarRecebimento(v); d.vendaId = v.id; save();
+  return `Pagamento recebido · venda de ${brl(totalVenda(v))} registrada no Caixa`;
+}
+function lancarRecebimento(v) { // receita da venda no Caixa (uma entrada, na data de hoje)
+  db.lancamentos = db.lancamentos.filter(l => l.vendaId !== v.id);
+  if (v.pago) db.lancamentos.push({ id: uid(), tipo: 'r', valor: totalVenda(v), data: hoje(), cat: 'Venda de produtos', desc: `Venda: ${nomeCliVenda(v)}`, forma: v.forma, vendaId: v.id, origem: 'venda' });
+}
 function registrarVendaPedido(p) {
   const d = p.dados, itens = d.itens.filter(i => by(db.artes, i.id)).map(i => ({ arteId: i.id, q: i.q, preco: i.v }));
   if (!itens.length) return toast('Os produtos deste pedido não existem mais');
@@ -143,7 +165,11 @@ function formPedidoProd(p) {
     ${(d.hist || []).length ? `<h3 style="margin:14px 0 4px">Histórico</h3><div class="row"><span>Pedido feito</span><small>${new Date(p.criado_em).toLocaleString('pt-BR')}</small></div>${d.hist.map(h => `<div class="row"><span>${nomeEtapa(h.e, d)}</span><small>${new Date(h.t).toLocaleString('pt-BR')}</small></div>`).join('')}` : ''}
     <button class="btn del full" id="pdel">Excluir pedido</button>`, () => {
     const volta = () => { fechar(); if (rota === 'pedidos') viewPedidos(); };
-    $('#ppago').onchange = async () => { d.pago = $('#ppago').checked; d.pagoEm = d.pago ? new Date().toISOString() : null; if (await gravarPedido(p)) { toast(d.pago ? 'Pagamento recebido' : 'Marcado como a receber'); if (venda && venda.pago !== d.pago) toast('Lembre de ajustar o "já recebi" na venda'); } };
+    $('#ppago').onchange = async () => {
+      d.pago = $('#ppago').checked; d.pagoEm = d.pago ? new Date().toISOString() : null;
+      const msg = sincronizarPagamento(p);
+      if (await gravarPedido(p, d.vendaId && vendaDoPedido(p) ? { status: 'convertido' } : {})) { toast(msg); formPedidoProd(p); }
+    };
     if ($('#pmp')) $('#pmp').onclick = async () => { try { await navigator.clipboard.writeText(d.mpLink); toast('Link copiado'); } catch { prompt('Copie o link:', d.mpLink); } };
     // Depois de mudar a etapa fecha o detalhe, a não ser que a tela de venda tenha sido aberta (entregue › registrar venda)
     const etapa = async nova => { if (await mudarEtapa(p, nova) && !$('#vsave')) volta(); };
@@ -200,7 +226,8 @@ function formNovoPedido() {
       $('#nsave').disabled = true;
       const { data, error } = await sb.from('pedidos').insert({ nome, tel, status: 'novo', dados }).select().single();
       if (error) { $('#nsave').disabled = false; return toast('Não foi possível lançar (sem internet?)'); }
-      await gravarPedido(data, { status: 'visto' }); // lançado por você: já nasce "visto"
+      if (pago) sincronizarPagamento(data); // já pago: a venda entra no Caixa na hora
+      await gravarPedido(data, { status: data.dados.vendaId ? 'convertido' : 'visto' }); // lançado por você: já nasce "visto"
       fechar(); toast('Pedido lançado'); st.pedFiltro = 'ativos';
       if (rota === 'pedidos') viewPedidos(); else ir('pedidos');
     };
